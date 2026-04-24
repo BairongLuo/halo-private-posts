@@ -20,6 +20,26 @@
 
 它不重新定义协议，而是消费 `ZKVault` 中定义的 `EncryptedPrivatePostBundle`。
 
+## 当前推进状态
+
+目前这条线已经从“验证独立阅读页可行”推进到“开始贴近 Halo 原生文章流”：
+
+- 已完成
+  - 文章列表状态字段
+    - 在 Halo 文章列表中显示“是否已配置私密正文”
+    - 可直接从文章列表跳到对应文章的私密正文配置页
+  - 管理页文章绑定增强
+    - 支持按 `postName` 载入现有 Halo 文章
+    - 在配置页显示标题、slug、摘要、发布时间和可见性
+    - 保存或删除私密正文后，同步刷新文章列表状态
+  - 阅读页主题变量适配
+    - reader 不再完全依赖固定配色
+    - 改为支持主题通过 CSS 变量覆盖页面背景、文字、强调色和字体
+- 仍未完成
+  - Halo 原生文章编辑器里的私密正文配置入口
+  - 作者侧“输入正文 + 密码后直接生成 bundle”的完整流
+  - 在原文章详情页中原位显示锁定态和解锁后的正文
+
 ## 已实现能力
 
 - Halo 插件工程骨架：Gradle、JDK 21、Node UI 构建、Gradle wrapper
@@ -46,8 +66,12 @@
   - `haloPrivatePostFinder.listAll()`
 - Console 管理页
   - 录入/更新/删除私密文章映射
+  - 从文章列表按 `postName` 跳转到对应配置页
+  - 载入和展示对应 Halo 文章的摘要信息
   - 本地解锁测试
   - Markdown 预览
+- Halo 文章流集成
+  - 通过 `post:list-item:field:create` 在文章列表增加私密正文状态字段
 - 协议兼容测试
   - 使用 `ZKVault` 的 `v1` fixture 验证浏览器解密结果
 
@@ -58,6 +82,7 @@
 - [src/main/resources/templates/private-post.html](src/main/resources/templates/private-post.html)：默认前台锁定页模板
 - [src/main/resources/extensions/reverse-proxy-reader.yaml](src/main/resources/extensions/reverse-proxy-reader.yaml)：reader 静态资源代理
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：当前实现分层与数据流
+- [docs/ROADMAP.md](docs/ROADMAP.md)：已完成项、当前阶段与下一步计划
 - [docs/ZKVAULT_INTEGRATION.md](docs/ZKVAULT_INTEGRATION.md)：协议边界与 fixture 同步约束
 - [ui](ui)：Halo Console 页和前台 reader 打包入口
 - [fixtures/private-post/v1/reference-hello](fixtures/private-post/v1/reference-hello)：从 `ZKVault` 同步过来的兼容性样本
@@ -148,8 +173,10 @@ npm run build
 
 - 直接嵌入 Halo 原生文章编辑器
 - 在 Halo 内部完成作者侧加密
-- 自动接管普通文章正文渲染
+- 在原文章页中原位接管普通文章正文渲染
 - 应用市场发布资产和 CI 流水线
+
+下一阶段优先级见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 与 ZKVault 的关系
 

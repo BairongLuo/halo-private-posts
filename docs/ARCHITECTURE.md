@@ -23,6 +23,7 @@
 负责：
 
 - Halo Console 管理页
+- Halo 文章列表中的私密正文状态字段
 - 锁定态文章页
 - 密码输入、解密动作流和 Markdown 渲染
 - 页面隐藏、离开和空闲超时重锁
@@ -63,9 +64,19 @@
 
 ### Console 管理流
 
-1. Console 页通过 `/apis/privateposts.halo.run/v1alpha1/privateposts` 读写 `PrivatePost`
-2. 表单内本地解析 bundle 并在浏览器中解密验证
-3. 保存时只把 bundle 和公开元数据写回 Halo
+1. Halo 文章列表通过 `post:list-item:field:create` 注入私密正文状态字段
+2. 从文章列表进入插件配置页时，路由通过 `postName` 锁定当前文章
+3. Console 页通过 `/apis/privateposts.halo.run/v1alpha1/privateposts` 读写 `PrivatePost`
+4. 表单内本地解析 bundle 并在浏览器中解密验证
+5. 保存时只把 bundle 和公开元数据写回 Halo
+
+### 当前集成方向
+
+当前前端已经开始从“独立映射管理页”往“增强现有 Halo 文章”收敛：
+
+- 文章列表里直接显示私密正文状态
+- 配置页支持按 `postName` 载入真实 Halo 文章信息
+- reader 开始改为主题变量驱动，而不是完全自带固定配色
 
 ### 阅读流
 
@@ -93,5 +104,7 @@
 
 - Halo 原生编辑器集成
 - 作者侧加密工作流
-- 普通文章正文自动替换
+- 原文章页内原位锁定与解锁
 - 发布流水线和应用市场元数据自动化
+
+下一阶段的重点不是继续强化独立阅读页，而是把作者配置流和读者阅读流继续向原生 `Post` 体验收口。

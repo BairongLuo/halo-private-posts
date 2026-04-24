@@ -2,11 +2,23 @@ import { IconPlug } from '@halo-dev/components'
 import { definePlugin } from '@halo-dev/console-shared'
 import { markRaw } from 'vue'
 
+import PostPrivateBodyField from './components/PostPrivateBodyField.vue'
 import PrivatePostsView from './views/PrivatePostsView.vue'
 
 export default definePlugin({
   components: {},
-  extensionPoints: {},
+  extensionPoints: {
+    'post:list-item:field:create': (post) => [
+      {
+        priority: 40,
+        position: 'end',
+        component: markRaw(PostPrivateBodyField),
+        props: {
+          postName: post.value.post.metadata.name,
+        },
+      },
+    ],
+  },
   routes: [
     {
       parentName: 'Root',

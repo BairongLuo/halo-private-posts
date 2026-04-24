@@ -18,6 +18,9 @@
 - 主视图：`src/views/PrivatePostsView.vue`
 - 数据源：Halo 扩展资源 `/apis/privateposts.halo.run/v1alpha1/privateposts`
 - 能力：
+  - 通过 `post:list-item:field:create` 在文章列表显示私密正文状态
+  - 从文章列表跳转到对应文章的私密正文配置页
+  - 按 `postName` 载入真实 Halo 文章信息
   - 维护 `postName -> bundle` 映射
   - 解析并校验 bundle JSON
   - 本地输入密码做解锁验证
@@ -32,6 +35,7 @@
   - 读取锁定页模板注入的 bundle 地址和超时配置
   - 浏览器本地执行 `scrypt + AES-GCM`
   - 标签页隐藏、页面离开和空闲超时后自动清空明文状态
+  - 通过 CSS 变量接收主题覆盖，而不是固定写死整套颜色
 
 ## 关键实现
 
@@ -39,8 +43,14 @@
   - `scrypt-js`
   - Web Crypto `AES-GCM`
   - `ZKVault v1` bundle 解析与校验
+- `src/components/PostPrivateBodyField.vue`
+  - Halo 文章列表里的私密正文状态字段
+- `src/stores/private-post-registry.ts`
+  - 私密正文映射缓存，供文章列表字段复用
+- `src/api/posts.ts`
+  - 读取 Halo 文章列表和文章详情
 - `src/views/PrivatePostsView.vue`
-  - Console 管理页
+  - Console 管理页和文章绑定流
 - `src/reader.ts`
   - 前台阅读页挂载和重锁逻辑
 
