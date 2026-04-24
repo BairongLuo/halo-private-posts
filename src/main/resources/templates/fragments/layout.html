@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org" th:fragment="layoutHtml(content)">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${title}">Halo Private Posts</title>
+</head>
+<body>
+  <th:block th:replace="${content}" />
+</body>
+</html>

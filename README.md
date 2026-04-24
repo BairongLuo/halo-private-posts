@@ -1,94 +1,161 @@
-# Halo Private Posts（Halo 私密文章插件）
+# Halo Private Posts
 
-`Halo Private Posts` 是一个面向 Halo 的私密文章插件项目，目标是提供密文正文发布与浏览器本地解密阅读能力。
+`Halo Private Posts` 是一个 Halo 插件，负责托管私密文章的公开元数据和加密 bundle，并在读者浏览器中完成本地解密。
 
-目标体验很简单：
+它不是“限制阅读”的另一层壳，而是密文正文分发适配层：
 
-1. 打开文章，先看到锁定页。
-2. 输入访问密码。
-3. 在浏览器中本地解密正文。
-4. 离开页面、切后台或超时后自动重新锁定。
+- Halo 继续负责公开元数据和主题渲染
+- 插件负责保存 `EncryptedPrivatePostBundle`
+- 读者输入访问密码后，浏览器本地执行 `scrypt + AES-256-GCM`
+- 页面隐藏、离开或空闲超时后自动重新锁定
 
-## 定位
+## 当前范围
 
-这个项目不是另一个泛化的“限制阅读”插件。
+这个仓库当前只做 Halo 适配层：
 
-核心区别是：
+- 用 `PrivatePost` 扩展资源保存文章映射和加密 bundle
+- 为 Halo 主题暴露私密文章阅读入口
+- 提供 Console 管理页维护映射关系
+- 在浏览器内完成 bundle 校验、解密、渲染和重锁
 
-- 限制阅读更关注访问控制
-- Halo Private Posts 更关注密文内容分发
+它不重新定义协议，而是消费 `ZKVault` 中定义的 `EncryptedPrivatePostBundle`。
 
-预期模型是：
+## 已实现能力
 
-- 公开元数据可以继续可见
-- 私密正文以密文形式存储
-- 浏览器负责本地解密
+- Halo 插件工程骨架：Gradle、JDK 21、Node UI 构建、Gradle wrapper
+- 自定义模型 `PrivatePost`
+  - 记录 `postName`
+  - 冗余公开元数据 `slug/title/excerpt/publishedAt`
+  - 保存完整加密 bundle
+- 自定义索引
+  - `spec.slug` 唯一
+  - `spec.postName` 唯一
+- Halo 扩展资源 API
+  - Console 管理页通过 `/apis/privateposts.halo.run/v1alpha1/privateposts` CRUD `PrivatePost`
+- 查询 API
+  - 额外注册了 `groupVersion = api.privateposts.halo.run/v1alpha1` 的 `CustomEndpoint`
+  - 路由为 `GET /private-posts`，支持按 `slug` 查询或列出 `PrivatePostView`
+- 前台阅读页
+  - `GET /private-posts?slug=...`
+  - `GET /private-posts/data?slug=...` 提供匿名 bundle JSON
+  - 默认主题模板 `private-post.html`
+  - reader 资源通过插件 ReverseProxy 暴露到 `/plugins/halo-private-posts/assets/reader/*`
+- 主题 Finder
+  - `haloPrivatePostFinder.getBySlug(slug)`
+  - `haloPrivatePostFinder.getByPostName(postName)`
+  - `haloPrivatePostFinder.listAll()`
+- Console 管理页
+  - 录入/更新/删除私密文章映射
+  - 本地解锁测试
+  - Markdown 预览
+- 协议兼容测试
+  - 使用 `ZKVault` 的 `v1` fixture 验证浏览器解密结果
 
-## 仓库范围
+## 仓库结构
 
-这个仓库是 Halo 专属适配层。
+- [src/main/java/run/halo/privateposts](src/main/java/run/halo/privateposts)：插件主类、模型、Finder、公共路由
+- [src/main/resources/plugin.yaml](src/main/resources/plugin.yaml)：插件清单
+- [src/main/resources/templates/private-post.html](src/main/resources/templates/private-post.html)：默认前台锁定页模板
+- [src/main/resources/extensions/reverse-proxy-reader.yaml](src/main/resources/extensions/reverse-proxy-reader.yaml)：reader 静态资源代理
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：当前实现分层与数据流
+- [docs/ZKVAULT_INTEGRATION.md](docs/ZKVAULT_INTEGRATION.md)：协议边界与 fixture 同步约束
+- [ui](ui)：Halo Console 页和前台 reader 打包入口
+- [fixtures/private-post/v1/reference-hello](fixtures/private-post/v1/reference-hello)：从 `ZKVault` 同步过来的兼容性样本
 
-它应该包含：
+## 开发要求
 
-- Halo 编辑器集成
-- Halo 文章字段映射
-- 锁定页 UI
-- 浏览器端解密流程
-- 自动重锁行为
-- 面向应用市场的文档和发布资产
+- JDK 21
+- Node.js 18+
+- npm 9+
 
-它不应该自己重新定义私密文章核心协议。
+Gradle 构建会自动使用 `ui/` 的 npm 依赖，并把产物复制到插件资源目录。
 
-该协议属于配套的 `ZKVault` 仓库。
+## 本地开发
 
-## MVP
+```bash
+./gradlew build
+```
 
-第一版只做这一条主链路：
+启动 Halo 开发容器并首次初始化：
 
-1. 将文章标记为私密文章
-2. 分别存储公开元数据和加密 bundle
-3. 在文章页渲染锁定状态
-4. 请求访问密码
-5. 在浏览器中解密正文
-6. 在路由离开、标签页隐藏或空闲超时后重锁
+```bash
+./gradlew createHaloContainer
+```
 
-## 非目标
+然后访问 `http://127.0.0.1:8090/system/setup` 完成首次 setup。
 
-第一版不包含：
+默认本地开发凭据如下，`reloadPlugin` 也会使用这组账号：
 
-- 会员系统
-- 支付流程
-- 评论后解锁
-- 登录后解锁
-- 防复制或防截图承诺
-- 多租户密钥管理
+- 用户名：`admin`
+- 密码：`Admin12345!`
+- 站点地址：`http://localhost:8090`
+
+如果你想改成本地自己的值，可以覆盖 Gradle 属性：
+
+```bash
+./gradlew \
+  -PhaloExternalUrl=http://127.0.0.1:8090 \
+  -PhaloSuperAdminUsername=admin \
+  -PhaloSuperAdminPassword='Admin12345!' \
+  reloadPlugin
+```
+
+实例完成 setup 之后，热重载插件：
+
+```bash
+./gradlew reloadPlugin
+```
+
+只验证前端时：
+
+```bash
+cd ui
+npm install
+npm run test:unit
+npm run build
+```
+
+## 验证建议
+
+- UI 单测：`cd ui && npm run test:unit`
+- UI 打包：`cd ui && npm run build`
+- 插件完整构建：`./gradlew build`
+- Halo 开发环境联调：`./gradlew createHaloContainer` 然后 `./gradlew reloadPlugin`
+
+## 主题接入
+
+插件提供两种接入方式：
+
+1. 直接跳到插件阅读页：
+
+```html
+<a th:href="@{/private-posts(slug=${privatePost.slug})}">阅读私密正文</a>
+```
+
+2. 在主题里自行渲染锁定态：
+
+```html
+<th:block th:with="privatePost=${haloPrivatePostFinder.getByPostName(post.metadata.name).block()}">
+  <th:block th:if="${privatePost != null}">
+    <a th:href="${privatePost.readerUrl}">阅读私密正文</a>
+  </th:block>
+</th:block>
+```
+
+因为 `slug` 允许包含 `/`，插件公开阅读页和公开 JSON 端点都使用查询参数 `slug`，而不是 path variable。
+
+## 当前未覆盖范围
+
+- 直接嵌入 Halo 原生文章编辑器
+- 在 Halo 内部完成作者侧加密
+- 自动接管普通文章正文渲染
+- 应用市场发布资产和 CI 流水线
 
 ## 与 ZKVault 的关系
 
-这个仓库是适配器，不是协议源头。
+这个仓库只消费 `ZKVault` 协议，不重新定义协议。
 
-当前分工是：
-
-- `ZKVault`：协议、作者端工具、fixture
-- `halo-private-posts`：Halo 集成与发布目标
+- `ZKVault`：协议、fixture、参考实现
+- `halo-private-posts`：Halo 插件、主题接入、浏览器交互
 
 详见 [docs/ZKVAULT_INTEGRATION.md](docs/ZKVAULT_INTEGRATION.md)。
-
-## 规划结构
-
-- [server/README.md](server/README.md)：Halo 插件服务端集成说明
-- [ui/README.md](ui/README.md)：锁定页、解锁流和重锁流
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：架构与边界
-- [PRODUCT.md](PRODUCT.md)：产品定义
-- [SECURITY.md](SECURITY.md)：安全边界与威胁模型
-
-## 当前状态
-
-当前仓库已经补齐首版产品和架构文档。
-
-后续实现建议按这个顺序推进：
-
-1. Halo 文章 payload 契约
-2. 锁定页 UI 契约
-3. 浏览器解密流程
-4. 文章重锁状态流

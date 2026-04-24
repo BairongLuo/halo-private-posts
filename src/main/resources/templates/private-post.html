@@ -1,0 +1,55 @@
+<div xmlns:th="http://www.thymeleaf.org"
+     th:replace="~{plugin:halo-private-posts:fragments/layout :: layoutHtml(content = ~{::content})}">
+  <main th:fragment="content">
+    <link rel="stylesheet" th:href="@{/plugins/halo-private-posts/assets/reader/reader.css}">
+    <section
+      id="private-post-reader"
+      th:attr="
+        data-title=${title},
+        data-slug=${slug},
+        data-excerpt=${excerpt},
+        data-published-at=${publishedAt},
+        data-bundle-url=${bundleApiPath},
+        data-idle-timeout-ms=${idleTimeoutMs}
+      "
+    >
+      <div class="hpp-shell">
+        <div class="hpp-hero">
+          <p class="hpp-eyebrow">Private Post</p>
+          <h1 class="hpp-title" th:text="${title}">Private Post</h1>
+          <p class="hpp-excerpt" th:if="${!#strings.isEmpty(excerpt)}" th:text="${excerpt}">
+            公开摘要
+          </p>
+          <div class="hpp-meta">
+            <span th:text="${slug}">slug</span>
+            <span th:if="${!#strings.isEmpty(publishedAt)}" th:text="${publishedAt}">2026-04-23T00:00:00Z</span>
+          </div>
+        </div>
+
+        <div class="hpp-panel">
+          <div class="hpp-lock" id="hpp-lock-panel">
+            <p class="hpp-status" id="hpp-status" data-status="neutral">
+              输入访问密码后，正文会在浏览器本地解密。
+            </p>
+            <form class="hpp-form" id="hpp-form">
+              <label class="hpp-label" for="hpp-password">访问密码</label>
+              <input class="hpp-input" id="hpp-password" type="password" autocomplete="current-password">
+              <button class="hpp-button" id="hpp-submit" type="submit">在浏览器中解锁</button>
+            </form>
+            <p class="hpp-hint">
+              正文解锁后会在离开页面、切后台或空闲超时后自动重新锁定。
+            </p>
+          </div>
+
+          <article class="hpp-content" id="hpp-content" hidden></article>
+        </div>
+      </div>
+
+      <noscript>
+        <p>此页面需要 JavaScript 才能在浏览器中本地解密正文。</p>
+      </noscript>
+    </section>
+
+    <script th:src="@{/plugins/halo-private-posts/assets/reader/reader.js}" defer></script>
+  </main>
+</div>

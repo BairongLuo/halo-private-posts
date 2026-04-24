@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Halo Private Posts</title>
+  <desc id="desc">A rounded shield with a lock and two content lines.</desc>
+  <defs>
+    <linearGradient id="shield" x1="18" y1="18" x2="110" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#155e75"/>
+    </linearGradient>
+    <linearGradient id="plate" x1="34" y1="34" x2="94" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+  <path d="M64 10 24 24v31c0 30 17 49 40 63 23-14 40-33 40-63V24L64 10Z" fill="url(#shield)"/>
+  <rect x="36" y="34" width="56" height="50" rx="10" fill="url(#plate)"/>
+  <path d="M50 56a14 14 0 1 1 28 0v5h4a6 6 0 0 1 6 6v11a6 6 0 0 1-6 6H46a6 6 0 0 1-6-6V67a6 6 0 0 1 6-6h4v-5Zm8 0v5h12v-5a6 6 0 1 0-12 0Z" fill="#0f172a"/>
+  <rect x="47" y="92" width="34" height="4" rx="2" fill="#94a3b8"/>
+  <rect x="54" y="100" width="20" height="4" rx="2" fill="#cbd5e1"/>
+</svg>

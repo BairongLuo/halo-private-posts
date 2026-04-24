@@ -1,0 +1,11 @@
+.gradle/
+build/
+workplace/
+ui/dist/
+ui/build/
+ui/dist-reader/
+ui/node_modules/
+.idea/
+.vscode/
+*.iml
+.DS_Store

@@ -1,0 +1,37 @@
+{
+  "name": "halo-private-posts-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "run-p build:console build:reader",
+    "build:console": "vite build",
+    "build:reader": "vite build --config reader.vite.config.ts",
+    "dev": "vite build --watch --mode=development",
+    "test:unit": "vitest --run --environment node",
+    "type-check": "vue-tsc --build"
+  },
+  "dependencies": {
+    "@halo-dev/api-client": "2.21.0",
+    "@halo-dev/components": "2.21.0",
+    "@halo-dev/console-shared": "2.21.0",
+    "axios": "1.7.2",
+    "marked": "15.0.12",
+    "scrypt-js": "3.0.1",
+    "vue": "3.5.17"
+  },
+  "devDependencies": {
+    "@halo-dev/ui-plugin-bundler-kit": "2.21.1",
+    "@tsconfig/node20": "20.1.6",
+    "@types/node": "20.19.1",
+    "@vitejs/plugin-vue": "5.2.4",
+    "@vue/tsconfig": "0.7.0",
+    "jsdom": "26.1.0",
+    "npm-run-all2": "7.0.2",
+    "typescript": "5.8.3",
+    "vite": "5.3.2",
+    "vitest": "3.2.4",
+    "vue-tsc": "2.2.10"
+  },
+  "packageManager": "npm@10.8.2"
+}

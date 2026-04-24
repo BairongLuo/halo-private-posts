@@ -1,0 +1,9 @@
+{
+  "metadata": {
+    "slug": "fixtures/hello-v1",
+    "title": "Fixture Hello V1",
+    "excerpt": "Reference fixture for cross-language verification",
+    "published_at": "2026-04-23T00:00:00Z"
+  },
+  "markdown": "# Fixture Hello\n\nThis bundle is committed as a reference vector for adapter implementations."
+}

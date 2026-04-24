@@ -1,0 +1,16 @@
+{
+  "auth_tag": "5d122cd764035dd3ab12d645b80a5485",
+  "cipher": "aes-256-gcm",
+  "ciphertext": "2c0dfa30a9a63a6996c05748ca585af6940270b0b6bc7429eec76abf89f7114a20085b5e2be4292d80a69fecbeae94a2e44a13eaf8661144d4ea2e4904d635e2a46f63eb13caa695039b6ac049d802f29a595a5abac1c800a007d90951dd710e8c86e482118d98322643b75446",
+  "data_iv": "5ee6c0060ebbfb764d14fc78",
+  "kdf": "scrypt",
+  "metadata": {
+    "excerpt": "Reference fixture for cross-language verification",
+    "published_at": "2026-04-23T00:00:00Z",
+    "slug": "fixtures/hello-v1",
+    "title": "Fixture Hello V1"
+  },
+  "payload_format": "markdown",
+  "salt": "734821130d063b02f2f468fedeb2c2ae",
+  "version": 1
+}

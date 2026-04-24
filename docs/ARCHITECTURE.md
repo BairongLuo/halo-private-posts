@@ -13,18 +13,19 @@
 负责：
 
 - Halo 插件注册
-- 文章元数据映射
-- 加密 bundle 存储映射
-- 编辑器侧配置入口
+- `PrivatePost` 扩展资源定义
+- `spec.slug` / `spec.postName` / `spec.publishedAt` 索引
+- 匿名阅读页和匿名 bundle JSON
+- Finder 与 `PrivatePostView` 组装
 
 ### 前端界面层
 
 负责：
 
+- Halo Console 管理页
 - 锁定态文章页
-- 密码输入
-- 解密动作流
-- 重锁行为
+- 密码输入、解密动作流和 Markdown 渲染
+- 页面隐藏、离开和空闲超时重锁
 - 状态和错误提示
 
 ### 协议消费层
@@ -35,7 +36,7 @@
 - 消费共享私密文章 bundle 格式
 - 保持与 `ZKVault` fixture 的兼容性
 
-## 数据拆分
+## 当前数据模型
 
 每篇私密文章应建模为：
 
@@ -48,6 +49,31 @@
   - 共享 bundle 数据
 
 具体字段映射可以是 Halo 专属的，但加密 bundle 格式应保持与 `ZKVault` 兼容。
+
+当前实现将这些字段统一收敛到 `PrivatePost.spec`：
+
+- `postName`
+- `slug`
+- `title`
+- `excerpt`
+- `publishedAt`
+- `bundle`
+
+## 当前请求流
+
+### Console 管理流
+
+1. Console 页通过 `/apis/privateposts.halo.run/v1alpha1/privateposts` 读写 `PrivatePost`
+2. 表单内本地解析 bundle 并在浏览器中解密验证
+3. 保存时只把 bundle 和公开元数据写回 Halo
+
+### 阅读流
+
+1. 读者访问 `/private-posts?slug=...`
+2. 服务端渲染 `private-post.html`，注入标题、摘要、bundle 地址和空闲超时
+3. reader 再请求 `/private-posts/data?slug=...`
+4. 浏览器本地完成 bundle 解密和 Markdown 渲染
+5. 页面隐藏、离开或超时后清空明文内容并回到锁定态
 
 ## 边界
 
@@ -63,10 +89,9 @@
 - 消费未来可能抽出的浏览器解密共享包
 - 发布 Halo 专属的 UI 和存储行为
 
-## 实现顺序
+## 当前未覆盖范围
 
-1. 先钉死 Halo 私密文章 payload 契约
-2. 实现锁定页渲染
-3. 实现浏览器解锁和重锁流程
-4. 增加编辑器侧私密文章作者流
-5. 补齐应用市场所需的发布资产和流水线
+- Halo 原生编辑器集成
+- 作者侧加密工作流
+- 普通文章正文自动替换
+- 发布流水线和应用市场元数据自动化

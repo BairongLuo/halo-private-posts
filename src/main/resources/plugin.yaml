@@ -1,0 +1,19 @@
+apiVersion: plugin.halo.run/v1alpha1
+kind: Plugin
+metadata:
+  name: halo-private-posts
+spec:
+  enabled: true
+  requires: ">=2.21.0"
+  author:
+    name: lbr
+    website: https://github.com/lbr
+  logo: logo.svg
+  homepage: https://github.com/lbr/halo-private-posts
+  repo: https://github.com/lbr/halo-private-posts
+  issues: https://github.com/lbr/halo-private-posts/issues
+  displayName: "Halo Private Posts"
+  description: "为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。"
+  license:
+    - name: "GPL-3.0"
+      url: "https://github.com/lbr/halo-private-posts/blob/main/LICENSE"

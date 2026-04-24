@@ -1,0 +1,10 @@
+apiVersion: plugin.halo.run/v1alpha1
+kind: ReverseProxy
+metadata:
+  name: halo-private-posts-reader-assets
+  labels:
+    plugin.halo.run/pluginName: halo-private-posts
+rules:
+  - path: /reader/**
+    file:
+      directory: static/reader

@@ -1,0 +1,82 @@
+plugins {
+    id 'java'
+    id 'io.freefair.lombok' version '8.14'
+    id 'com.github.node-gradle.node' version '7.1.0'
+    id 'run.halo.plugin.devtools' version '0.6.2'
+}
+
+group = 'run.halo.privateposts'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation platform('run.halo.tools.platform:plugin:2.21.0')
+    compileOnly 'run.halo.app:api'
+
+    testImplementation 'run.halo.app:api'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+node {
+    download = false
+    nodeProjectDir = file("${project.projectDir}/ui")
+}
+
+tasks.register('buildConsoleUi', NpmTask) {
+    args = ['run', 'build:console']
+    dependsOn tasks.named('npmInstall')
+}
+
+tasks.register('buildReaderUi', NpmTask) {
+    args = ['run', 'build:reader']
+    dependsOn tasks.named('npmInstall')
+}
+
+tasks.register('processConsoleUiResources', Copy) {
+    from file("${project.projectDir}/ui/build/dist")
+    into layout.buildDirectory.dir('resources/main/console')
+    dependsOn tasks.named('buildConsoleUi')
+    shouldRunAfter tasks.named('processResources')
+}
+
+tasks.register('processReaderUiResources', Copy) {
+    from file("${project.projectDir}/ui/dist-reader")
+    into layout.buildDirectory.dir('resources/main/static/reader')
+    dependsOn tasks.named('buildReaderUi')
+    shouldRunAfter tasks.named('processResources')
+}
+
+tasks.named('classes') {
+    dependsOn tasks.named('processConsoleUiResources')
+    dependsOn tasks.named('processReaderUiResources')
+}
+
+def haloExternalUrl = providers.gradleProperty('haloExternalUrl').orElse('http://localhost:8090')
+def haloSuperAdminUsername = providers.gradleProperty('haloSuperAdminUsername').orElse('admin')
+def haloSuperAdminPassword = providers.gradleProperty('haloSuperAdminPassword').orElse('Admin12345!')
+
+halo {
+    version = '2.21.7'
+    debug = true
+    externalUrl = haloExternalUrl.get()
+    superAdminUsername = haloSuperAdminUsername.get()
+    superAdminPassword = haloSuperAdminPassword.get()
+}
