@@ -1,9 +1,10 @@
 <div xmlns:th="http://www.thymeleaf.org"
      th:replace="~{plugin:halo-private-posts:fragments/layout :: layoutHtml(content = ~{::content})}">
   <main th:fragment="content">
-    <link rel="stylesheet" th:href="@{/plugins/halo-private-posts/assets/reader/reader.css}">
     <section
       id="private-post-reader"
+      data-halo-private-post-reader="true"
+      data-hpp-layout="standalone"
       th:attr="
         data-title=${title},
         data-slug=${slug},
@@ -27,21 +28,29 @@
         </div>
 
         <div class="hpp-panel">
-          <div class="hpp-lock" id="hpp-lock-panel">
-            <p class="hpp-status" id="hpp-status" data-status="neutral">
+          <div class="hpp-lock" data-hpp-lock-panel>
+            <p class="hpp-status" data-hpp-status data-status="neutral">
               输入访问密码后，正文会在浏览器本地解密。
             </p>
-            <form class="hpp-form" id="hpp-form">
+            <form class="hpp-form" data-hpp-form>
               <label class="hpp-label" for="hpp-password">访问密码</label>
-              <input class="hpp-input" id="hpp-password" type="password" autocomplete="current-password">
-              <button class="hpp-button" id="hpp-submit" type="submit">在浏览器中解锁</button>
+              <input
+                class="hpp-input"
+                id="hpp-password"
+                data-hpp-password
+                type="password"
+                autocomplete="current-password"
+              >
+              <div class="hpp-actions">
+                <button class="hpp-button" data-hpp-submit type="submit">用密码解锁</button>
+              </div>
             </form>
             <p class="hpp-hint">
               正文解锁后会在离开页面、切后台或空闲超时后自动重新锁定。
             </p>
           </div>
 
-          <article class="hpp-content" id="hpp-content" hidden></article>
+          <article class="hpp-content" data-hpp-content hidden></article>
         </div>
       </div>
 
@@ -49,7 +58,5 @@
         <p>此页面需要 JavaScript 才能在浏览器中本地解密正文。</p>
       </noscript>
     </section>
-
-    <script th:src="@{/plugins/halo-private-posts/assets/reader/reader.js}" defer></script>
   </main>
 </div>

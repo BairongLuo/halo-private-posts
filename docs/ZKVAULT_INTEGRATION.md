@@ -1,73 +1,68 @@
-# ZKVault 集成说明
+# 协议边界说明
 
 ## 目标
 
-`halo-private-posts` 应通过共享协议与 `ZKVault` 集成，而不是通过运行时耦合原生应用来集成。
+`halo-private-posts` 负责 Halo 侧的适配、存储和浏览器交互，不负责把运行时依赖绑到某个外部桌面应用或 CLI 上。
 
-## 共享契约
+## 当前协议事实
 
-当前预期的共享契约是 `ZKVault` 仓库中定义的私密文章加密 bundle。
+当前仓库实际消费的是 `EncryptedPrivatePostBundle v2`。
 
-这个仓库应将 `ZKVault` 视为以下内容的事实来源：
+这个版本采用信封加密结构：
 
-- bundle 结构
-- bundle 版本规则
-- 示例数据样本
-- 作者端加密输出预期
+- 随机生成内容密钥 `CEK`
+- 正文用 `AES-256-GCM` 加密
+- `password_slot` 用 `scrypt + AES-GCM` 包裹 `CEK`
+- `author_slots[]` 用作者公钥 `RSA-OAEP` 包裹同一个 `CEK`
 
-当前实现直接消费 `EncryptedPrivatePostBundle v1`，并把解密兼容性测试固定在仓库内的 fixture 上。
+当前前端只接受：
 
-## 共享示例数据
-
-推荐的同步模型是：
-
-- `ZKVault` 为每个支持的 bundle 版本提供 fixture 样本
-- 本仓库使用这些 fixture 做兼容性测试
-
-典型 fixture 内容包括：
-
-- 明文文章样本
-- 加密 bundle 样本
-- 版本说明
-
-当前已同步样本：
-
-- [fixtures/private-post/v1/reference-hello/document.json](../fixtures/private-post/v1/reference-hello/document.json)
-- [fixtures/private-post/v1/reference-hello/bundle.json](../fixtures/private-post/v1/reference-hello/bundle.json)
-
-## 版本管理
-
-这个仓库应明确声明自己支持哪些 bundle 版本。
-
-例如：
-
-- 支持 `EncryptedPrivatePostBundle` 版本 `1`
-
-如果 `ZKVault` 中的协议发生变化，这里的兼容性应显式更新，而不是默认假设继续兼容。
-
-当前前端实现只接受：
-
-- `version = 1`
+- `version = 2`
 - `payload_format = markdown`
 - `cipher = aes-256-gcm`
-- `kdf = scrypt`
+- `kdf = envelope`
+- `password_slot.kdf = scrypt`
 
-如果协议字段或解密流程变化，应先在 `ZKVault` 升级版本，再由本仓库按版本补支持。
+## 私钥与密码边界
 
-## 不该做什么
+当前实现明确遵守以下边界：
 
-- 不要让 Halo 读者运行时依赖本地 `zkvault` 二进制
-- 不要把 CLI 文本输出当成正式集成契约
-- 不要复制协议定义并演变成 Halo 私有的一次性格式
+- Halo 不保存访问密码
+- Halo 不保存作者私钥
+- 服务端只保存 bundle、公开元数据和作者公钥
+- 作者私钥只保存在浏览器本地
 
-## 当前实现策略
+## 版本约束
 
-- 服务端只保存 bundle 和公开元数据，不保存访问密码
-- Console 页的“本地解锁测试”在浏览器内执行，不把密码发送到 Halo
-- 阅读页通过匿名 JSON 端点获取 bundle，再在浏览器内解密
+- 新文章只按 `v2` 生成
+- 阅读端只按 `v2` 解密
+- 如需继续演进协议，应通过显式版本升级完成
 
-## 后续演进
+## 当前集成策略
 
-如果浏览器端解密路径未来需要在 Halo 和其他 Web 平台之间复用，可以再单独抽一个共享前端包。
+当前仓库把协议实现边界放在浏览器端：
 
-在此之前，这个仓库应继续保持 Halo 适配层角色，而 `ZKVault` 继续保持协议源头角色。
+- 作者加锁在浏览器里完成
+- 读者密码解锁在浏览器里完成
+- 作者钥匙恢复链路也在浏览器里完成
+
+但当前产品 UI 约束是：
+
+- 阅读端公开界面只暴露访问密码输入
+- 作者钥匙不作为读者交互入口展示
+- 作者钥匙主要承担作者侧恢复 `CEK` 和后台覆盖口令能力
+
+服务端的职责是：
+
+- 保存注解和扩展资源
+- 提供匿名 bundle 读取入口
+- 给主题和 reader 提供稳定视图模型
+
+## 后续约束
+
+后续如果要和其他实现共享协议，需要遵守这几个原则：
+
+- 先出新版本，再谈版本边界
+- 不用 CLI 文本输出做正式契约
+- 不把 Halo 的 UI 约束反向固化成协议定义
+- 不把浏览器私钥托管逻辑放回服务端

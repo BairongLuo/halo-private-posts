@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '0.1.0'
+version = '0.5.5'
 
 repositories {
     mavenCentral()
@@ -18,6 +18,7 @@ dependencies {
 
     testImplementation 'run.halo.app:api'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 test {
@@ -69,12 +70,20 @@ tasks.named('classes') {
     dependsOn tasks.named('processReaderUiResources')
 }
 
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Implementation-Version': project.version
+        )
+    }
+}
+
 def haloExternalUrl = providers.gradleProperty('haloExternalUrl').orElse('http://localhost:8090')
 def haloSuperAdminUsername = providers.gradleProperty('haloSuperAdminUsername').orElse('admin')
 def haloSuperAdminPassword = providers.gradleProperty('haloSuperAdminPassword').orElse('Admin12345!')
 
 halo {
-    version = '2.21.7'
+    version = '2.24.1'
     debug = true
     externalUrl = haloExternalUrl.get()
     superAdminUsername = haloSuperAdminUsername.get()

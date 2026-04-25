@@ -1,9 +1,12 @@
 import { IconPlug } from '@halo-dev/components'
-import { definePlugin } from '@halo-dev/console-shared'
+import { definePlugin } from '@halo-dev/ui-shared'
 import { markRaw } from 'vue'
 
+import { installPrivatePostAnnotationTool } from './annotation/mount'
 import PostPrivateBodyField from './components/PostPrivateBodyField.vue'
 import PrivatePostsView from './views/PrivatePostsView.vue'
+
+installPrivatePostAnnotationTool()
 
 export default definePlugin({
   components: {},

@@ -1,5 +1,5 @@
 import { consoleApiClient, coreApiClient } from '@halo-dev/api-client'
-import type { ListedPost, Post } from '@halo-dev/api-client'
+import type { ContentWrapper, JsonPatchInner, ListedPost, Post } from '@halo-dev/api-client'
 
 export interface HaloPostSummary {
   name: string
@@ -10,6 +10,15 @@ export interface HaloPostSummary {
   permalink?: string
   visible?: string
 }
+
+export interface HaloPostContent {
+  raw: string
+  content: string
+  rawType?: string
+}
+
+const PRIVATE_POST_BUNDLE_ANNOTATION = 'privateposts.halo.run/bundle'
+const PRIVATE_POST_BUNDLE_ANNOTATION_PATH = '/metadata/annotations/privateposts.halo.run~1bundle'
 
 export async function listHaloPosts(keyword = ''): Promise<HaloPostSummary[]> {
   const { data } = await consoleApiClient.content.post.listPosts({
@@ -27,6 +36,61 @@ export async function getHaloPostByName(name: string): Promise<HaloPostSummary> 
   return mapPostToSummary(data)
 }
 
+export async function fetchHaloPostHeadContent(name: string): Promise<HaloPostContent> {
+  const { data } = await consoleApiClient.content.post.fetchPostHeadContent({ name })
+  return mapContentWrapper(data)
+}
+
+export async function persistPrivatePostBundleAnnotation(
+  name: string,
+  bundleText: string
+): Promise<void> {
+  const { data: post } = await coreApiClient.content.post.getPost({ name })
+  const annotations = post.metadata.annotations ?? {}
+  const hasAnnotation = Object.prototype.hasOwnProperty.call(
+    annotations,
+    PRIVATE_POST_BUNDLE_ANNOTATION
+  )
+  const normalizedBundleText = bundleText.trim()
+  let patch: JsonPatchInner[] = []
+
+  if (normalizedBundleText) {
+    patch = post.metadata.annotations
+      ? [
+          {
+            op: hasAnnotation ? 'replace' : 'add',
+            path: PRIVATE_POST_BUNDLE_ANNOTATION_PATH,
+            value: normalizedBundleText,
+          },
+        ]
+      : [
+          {
+            op: 'add',
+            path: '/metadata/annotations',
+            value: {
+              [PRIVATE_POST_BUNDLE_ANNOTATION]: normalizedBundleText,
+            },
+          },
+        ]
+  } else if (hasAnnotation) {
+    patch = [
+      {
+        op: 'remove',
+        path: PRIVATE_POST_BUNDLE_ANNOTATION_PATH,
+      },
+    ]
+  }
+
+  if (patch.length === 0) {
+    return
+  }
+
+  await coreApiClient.content.post.patchPost({
+    name,
+    jsonPatchInner: patch,
+  })
+}
+
 function mapListedPostToSummary(listedPost: ListedPost): HaloPostSummary {
   return mapPostToSummary(listedPost.post)
 }
@@ -40,5 +104,13 @@ function mapPostToSummary(post: Post): HaloPostSummary {
     publishTime: post.spec.publishTime ?? undefined,
     permalink: post.status?.permalink ?? undefined,
     visible: post.spec.visible,
+  }
+}
+
+function mapContentWrapper(content: ContentWrapper): HaloPostContent {
+  return {
+    raw: content.raw ?? '',
+    content: content.content ?? '',
+    rawType: content.rawType ?? undefined,
   }
 }

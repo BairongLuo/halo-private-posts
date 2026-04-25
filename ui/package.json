@@ -1,7 +1,7 @@
 {
   "name": "halo-private-posts-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.5.5",
   "type": "module",
   "scripts": {
     "build": "run-p build:console build:reader",
@@ -12,16 +12,19 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
-    "@halo-dev/api-client": "2.21.0",
-    "@halo-dev/components": "2.21.0",
-    "@halo-dev/console-shared": "2.21.0",
-    "axios": "1.7.2",
+    "@halo-dev/api-client": "2.24.0",
+    "@halo-dev/components": "2.24.0",
+    "@halo-dev/richtext-editor": "2.24.0",
+    "@halo-dev/ui-shared": "2.24.0",
+    "axios": "^1.12.2",
     "marked": "15.0.12",
     "scrypt-js": "3.0.1",
     "vue": "3.5.17"
   },
   "devDependencies": {
-    "@halo-dev/ui-plugin-bundler-kit": "2.21.1",
+    "@rsbuild/core": "1.2.0",
+    "@rsbuild/plugin-vue": "1.2.0",
+    "@halo-dev/ui-plugin-bundler-kit": "2.24.0",
     "@tsconfig/node20": "20.1.6",
     "@types/node": "20.19.1",
     "@vitejs/plugin-vue": "5.2.4",

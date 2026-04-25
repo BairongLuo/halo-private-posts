@@ -1,0 +1,35 @@
+apiVersion: v1alpha1
+kind: AnnotationSetting
+metadata:
+  name: halo-private-posts-post-annotation-setting
+  labels:
+    plugin.halo.run/pluginName: halo-private-posts
+spec:
+  targetRef:
+    group: content.halo.run
+    kind: Post
+  formSchema:
+    - $el: div
+      attrs:
+        data-hpp-annotation-tool: "true"
+        data-bundle-field-id: "hpp-annotation-bundle"
+        style: "margin-bottom: 1rem;"
+      children:
+        - $el: div
+          attrs:
+            style: |
+              padding: 0.75rem 0.9rem;
+              border-radius: 0.75rem;
+              border: 1px dashed #cbd5e1;
+              background: #f8fafc;
+              color: #475569;
+              font-size: 0.875rem;
+              line-height: 1.6;
+          children: "正在加载私密正文加锁工具。如果长时间未显示，请刷新页面后重试。"
+    - $formkit: textarea
+      id: hpp-annotation-bundle
+      name: privateposts.halo.run/bundle
+      label: 私密正文内部密文（自动维护）
+      placeholder: "{ ... 自动维护的加密 bundle ... }"
+      rows: 14
+      help: "由上方加锁工具自动维护，请勿手动编辑。"

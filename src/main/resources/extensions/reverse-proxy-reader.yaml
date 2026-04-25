@@ -5,6 +5,6 @@ metadata:
   labels:
     plugin.halo.run/pluginName: halo-private-posts
 rules:
-  - path: /reader/**
+  - path: reader/**
     file:
       directory: static/reader

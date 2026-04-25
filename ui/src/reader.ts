@@ -1,36 +1,118 @@
 import './reader.css'
 
 import type { PrivatePostView } from '@/types/private-post'
-import { decryptPrivatePost, renderMarkdown } from '@/utils/private-post-crypto'
+import {
+  decryptPrivatePost,
+  renderMarkdown,
+} from '@/utils/private-post-crypto'
 
-const root = document.getElementById('private-post-reader')
+declare global {
+  interface Window {
+    haloPrivatePostsMountReaders?: () => void
+    haloPrivatePostsReaderInitialized?: boolean
+  }
+}
 
-if (root) {
-  void bootReader(root)
+if (!window.haloPrivatePostsReaderInitialized) {
+  window.haloPrivatePostsReaderInitialized = true
+  window.haloPrivatePostsMountReaders = mountAllReaders
+  mountAllReaders()
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountAllReaders, { once: true })
+  }
+
+  installReaderObserver()
+}
+
+function mountAllReaders() {
+  document.querySelectorAll<HTMLElement>('[data-halo-private-post-reader]').forEach((root) => {
+    void bootReader(root)
+  })
+}
+
+function installReaderObserver() {
+  if (typeof MutationObserver === 'undefined') {
+    return
+  }
+
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.some(containsReaderMount)) {
+      mountAllReaders()
+    }
+  })
+
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  })
+}
+
+function containsReaderMount(mutation: MutationRecord): boolean {
+  return Array.from(mutation.addedNodes).some((node) => {
+    if (!(node instanceof HTMLElement)) {
+      return false
+    }
+
+    return node.matches('[data-halo-private-post-reader]')
+      || Boolean(node.querySelector('[data-halo-private-post-reader]'))
+  })
 }
 
 async function bootReader(element: HTMLElement) {
+  if (element.dataset.hppMounted === 'true') {
+    return
+  }
+
   const bundleUrl = element.dataset.bundleUrl
+  const layout = element.dataset.hppLayout ?? 'standalone'
   const idleTimeoutMs = Number.parseInt(element.dataset.idleTimeoutMs ?? '300000', 10)
-  const form = document.getElementById('hpp-form') as HTMLFormElement | null
-  const passwordInput = document.getElementById('hpp-password') as HTMLInputElement | null
-  const submitButton = document.getElementById('hpp-submit') as HTMLButtonElement | null
-  const status = document.getElementById('hpp-status') as HTMLParagraphElement | null
-  const lockPanel = document.getElementById('hpp-lock-panel') as HTMLDivElement | null
-  const content = document.getElementById('hpp-content') as HTMLElement | null
+  const form = element.querySelector<HTMLFormElement>('[data-hpp-form]')
+  const passwordInput = element.querySelector<HTMLInputElement>('[data-hpp-password]')
+  const submitButton = element.querySelector<HTMLButtonElement>('[data-hpp-submit]')
+  const status = element.querySelector<HTMLParagraphElement>('[data-hpp-status]')
+  const lockPanel = element.querySelector<HTMLDivElement>('[data-hpp-lock-panel]')
+  const content = element.querySelector<HTMLElement>('[data-hpp-content]')
+  const themedHost = resolveThemedInlineHost(element, layout)
 
   if (!bundleUrl || !form || !passwordInput || !submitButton || !status || !lockPanel || !content) {
     return
   }
 
-  let cachedView: PrivatePostView | null = null
+  element.dataset.hppMounted = 'true'
+
   let idleTimer: number | undefined
+  let activityListenersEnabled = false
+  let inlineThemeUnlocked = false
+  const themedHostMarkup = themedHost?.innerHTML ?? null
+  const lifecycleController = new AbortController()
   const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'touchstart']
+  const isUnlocked = () => inlineThemeUnlocked || !content.hidden
 
   const relock = (message: string) => {
     if (idleTimer) {
       window.clearTimeout(idleTimer)
       idleTimer = undefined
+    }
+
+    if (themedHost && themedHostMarkup !== null && inlineThemeUnlocked) {
+      inlineThemeUnlocked = false
+      activityListenersEnabled = false
+      lifecycleController.abort()
+      themedHost.innerHTML = themedHostMarkup
+      themedHost.removeAttribute('data-hpp-unlocked')
+
+      const restoredStatus = themedHost.querySelector<HTMLElement>('[data-hpp-status]')
+      if (restoredStatus) {
+        setStatus(restoredStatus, 'neutral', message)
+      }
+
+      const restoredRoot = themedHost.querySelector<HTMLElement>('[data-halo-private-post-reader]')
+      if (restoredRoot) {
+        void bootReader(restoredRoot)
+      }
+
+      return
     }
 
     content.innerHTML = ''
@@ -52,9 +134,18 @@ async function bootReader(element: HTMLElement) {
   }
 
   const toggleActivityListeners = (enabled: boolean) => {
+    if (activityListenersEnabled === enabled) {
+      return
+    }
+
+    activityListenersEnabled = enabled
+
     activityEvents.forEach((eventName) => {
       if (enabled) {
-        window.addEventListener(eventName, armIdleRelock, { passive: true })
+        window.addEventListener(eventName, armIdleRelock, {
+          passive: true,
+          signal: lifecycleController.signal,
+        })
       } else {
         window.removeEventListener(eventName, armIdleRelock)
       }
@@ -62,16 +153,36 @@ async function bootReader(element: HTMLElement) {
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && !content.hidden) {
+    if (document.hidden && isUnlocked()) {
       relock('标签页已隐藏，正文已重新锁定。')
     }
-  })
+  }, { signal: lifecycleController.signal })
 
   window.addEventListener('pagehide', () => {
-    if (!content.hidden) {
+    if (isUnlocked()) {
       relock('你已离开页面，正文已重新锁定。')
     }
-  })
+  }, { signal: lifecycleController.signal })
+
+  const setBusy = (busy: boolean) => {
+    submitButton.disabled = busy
+  }
+
+  const revealContent = (renderedHtml: string, message: string) => {
+    if (themedHost && themedHostMarkup !== null) {
+      inlineThemeUnlocked = true
+      themedHost.innerHTML = renderedHtml
+      themedHost.dataset.hppUnlocked = 'true'
+    } else {
+      content.innerHTML = renderedHtml
+      content.hidden = false
+      lockPanel.hidden = true
+      setStatus(status, 'success', message)
+    }
+
+    armIdleRelock()
+    toggleActivityListeners(true)
+  }
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
@@ -81,36 +192,30 @@ async function bootReader(element: HTMLElement) {
       return
     }
 
-    submitButton.disabled = true
+    setBusy(true)
     setStatus(status, 'neutral', '正在拉取密文并在浏览器中解密…')
 
     try {
-      if (!cachedView) {
-        cachedView = await fetchPrivatePostView(bundleUrl)
-      }
+      const view = await fetchPrivatePostView(bundleUrl)
+      const decrypted = await decryptPrivatePost(view.bundle, password)
+      const renderedHtml = await renderMarkdown(decrypted.markdown)
 
-      const decrypted = await decryptPrivatePost(cachedView.bundle, password)
-      content.innerHTML = await renderMarkdown(decrypted.markdown)
-      content.hidden = false
-      lockPanel.hidden = true
-      setStatus(
-        status,
-        'success',
+      revealContent(
+        renderedHtml,
         '正文已在浏览器中解密。切后台、离开页面或空闲超时后会重新锁定。'
       )
-      armIdleRelock()
-      toggleActivityListeners(true)
     } catch (error) {
       setStatus(status, 'error', toMessage(error))
       passwordInput.select()
     } finally {
-      submitButton.disabled = false
+      setBusy(false)
     }
   })
 }
 
 async function fetchPrivatePostView(bundleUrl: string): Promise<PrivatePostView> {
   const response = await fetch(bundleUrl, {
+    cache: 'no-store',
     headers: {
       Accept: 'application/json',
     },
@@ -128,6 +233,44 @@ function setStatus(element: HTMLElement, state: 'neutral' | 'success' | 'error',
   element.textContent = message
 }
 
+function resolveThemedInlineHost(element: HTMLElement, layout: string): HTMLElement | null {
+  if (layout !== 'inline') {
+    return null
+  }
+
+  const parent = element.parentElement
+  if (!parent || parent.firstElementChild !== element || parent.children.length !== 1) {
+    return null
+  }
+
+  if (
+    parent.matches('[itemprop="articleBody"]')
+    || parent.matches('.content, .post-content, .entry-content, .article-content, .markdown-body, .prose')
+  ) {
+    return parent
+  }
+
+  return null
+}
+
 function toMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '未知错误'
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error
+  }
+
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  if (
+    typeof error === 'object'
+    && error !== null
+    && 'message' in error
+    && typeof error.message === 'string'
+    && error.message.trim().length > 0
+  ) {
+    return error.message
+  }
+
+  return '未知错误'
 }

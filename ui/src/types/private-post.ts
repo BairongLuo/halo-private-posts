@@ -5,15 +5,30 @@ export interface BundleMetadata {
   published_at?: string
 }
 
+export interface PasswordSlot {
+  kdf: string
+  salt: string
+  wrap_iv: string
+  wrapped_cek: string
+  auth_tag: string
+}
+
+export interface AuthorSlot {
+  key_id: string
+  algorithm: string
+  wrapped_cek: string
+}
+
 export interface EncryptedPrivatePostBundle {
   version: number
   payload_format: string
   cipher: string
   kdf: string
-  salt: string
   data_iv: string
   ciphertext: string
   auth_tag: string
+  password_slot: PasswordSlot
+  author_slots: AuthorSlot[]
   metadata: BundleMetadata
 }
 

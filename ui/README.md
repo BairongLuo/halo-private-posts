@@ -1,16 +1,17 @@
 # 前端界面
 
-`ui/` 现在包含两套前端入口：
+`ui/` 现在包含三块前端能力：
 
 1. Halo Console 插件页
-   - 录入私密文章映射
-   - 粘贴 `EncryptedPrivatePostBundle`
-   - 本地输入密码验证解锁
-   - Markdown 预览
-2. 前台 reader
-   - 锁定态页面
-   - 浏览器本地解密
-   - 页面隐藏、离开和空闲超时重锁
+   - 展示已加密文章
+   - 后台覆盖访问口令
+2. 文章设置里的私密正文工具
+   - 在当前文章上直接加锁或取消加锁
+   - 直接维护注解里的 `bundle`
+3. 前台 reader
+   - 原文章页内联锁定态
+   - 独立阅读页
+   - 浏览器本地解密与自动重锁
 
 ## Console 页
 
@@ -21,18 +22,26 @@
   - 通过 `post:list-item:field:create` 在文章列表显示私密正文状态
   - 从文章列表跳转到对应文章的私密正文配置页
   - 按 `postName` 载入真实 Halo 文章信息
-  - 维护 `postName -> bundle` 映射
-  - 解析并校验 bundle JSON
-  - 本地输入密码做解锁验证
-  - 用 `marked` 做 Markdown 预览
+  - 读取当前浏览器里的隐藏作者私钥
+  - 只重写 `password_slot`，不回显旧口令
 
-## Reader 页
+## 文章设置工具
+
+- 入口：`src/annotation/PrivatePostAnnotationTool.vue`
+- 挂载：`src/annotation/mount.ts`
+- 能力：
+  - 读取当前文章正文
+  - 浏览器本地生成 `EncryptedPrivatePostBundle v2`
+  - 直接写回 `privateposts.halo.run/bundle`
+  - 自动为当前默认作者公钥写入 `author_slots[]`
+
+## Reader
 
 - 入口：`src/reader.ts`
 - 样式：`src/reader.css`
 - 数据源：匿名阅读接口 `/private-posts/data?slug=...`
 - 行为：
-  - 读取锁定页模板注入的 bundle 地址和超时配置
+  - 读取模板注入的 bundle 地址和超时配置
   - 浏览器本地执行 `scrypt + AES-GCM`
   - 标签页隐藏、页面离开和空闲超时后自动清空明文状态
   - 通过 CSS 变量接收主题覆盖，而不是固定写死整套颜色
@@ -40,19 +49,17 @@
 ## 关键实现
 
 - `src/utils/private-post-crypto.ts`
-  - `scrypt-js`
-  - Web Crypto `AES-GCM`
-  - `ZKVault v1` bundle 解析与校验
+  - `EncryptedPrivatePostBundle v2` 解析、校验和加解密
+- `src/utils/author-key-crypto.ts`
+  - 作者钥匙包裹与解包 `CEK`
+- `src/utils/default-author-key.ts`
+  - 默认隐藏作者钥匙初始化
 - `src/components/PostPrivateBodyField.vue`
   - Halo 文章列表里的私密正文状态字段
-- `src/stores/private-post-registry.ts`
-  - 私密正文映射缓存，供文章列表字段复用
-- `src/api/posts.ts`
-  - 读取 Halo 文章列表和文章详情
 - `src/views/PrivatePostsView.vue`
-  - Console 管理页和文章绑定流
+  - Console 管理页和后台覆盖口令流
 - `src/reader.ts`
-  - 前台阅读页挂载和重锁逻辑
+  - 阅读页挂载和自动重锁逻辑
 
 ## 可用命令
 
