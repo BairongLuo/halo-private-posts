@@ -12,16 +12,6 @@
 - 用 `author_slots[]` 通过作者公钥包裹同一个 `CEK`
 - Halo 不保存访问密码，也不保存作者私钥
 
-## 当前版本定位
-
-当前仓库版本更接近：
-
-- 自用 beta / RC
-- 已跑通主链路
-- 还没有按“公开发布到应用市场”的标准完成整体验收
-
-特别是删除插件、主题适配和真实 Halo 环境回归，仍然按谨慎口径处理。
-
 ## 当前形态
 
 插件现在的主工作流已经不是“单独维护一篇私密文章”，而是直接增强 Halo 原生文章流：
@@ -33,6 +23,16 @@
 - 原文章页正文区域会被替换成锁定态，读者可以在原页面内直接解锁
 - `/private-posts?slug=...` 仍保留为独立阅读页
 - `/console/private-posts` 现在只负责对已加密文章重设/覆盖访问口令
+
+## 当前状态
+
+当前版本更接近：
+
+- 自用 beta / RC
+- 主链路已经跑通
+- 还没有按“公开发布到应用市场”的标准完成整体验收
+
+尤其是删除插件收尾、主题适配和真实 Halo 环境回归，当前仍按谨慎口径处理。
 
 ## 已实现能力
 
@@ -69,7 +69,7 @@
 - 默认锁定页模板 `private-post.html`
 - reader 静态资源通过插件 ReverseProxy 暴露到 `/plugins/halo-private-posts/assets/reader/*`
 
-## 核心数据模型
+## 核心模型
 
 ### `PrivatePost`
 
@@ -105,27 +105,12 @@
 - 用途：作者本人在后台覆盖访问口令，以及作为隐藏恢复能力包裹同一个 `CEK`
 - 约束：当前产品不在界面中暴露独立管理入口
 
-## 卸载行为
+## 文档导航
 
-删除插件时，当前版本会在插件 `stop()` 阶段检测插件资源是否进入删除态：
-
-- 若只是停用、重启或升级，不执行清理
-- 若是删除插件，最佳努力清除文章上的 `privateposts.halo.run/bundle` 注解
-- 同时删除 `PrivatePost` 和 `AuthorKey` 扩展资源
-
-这里的语义是“让文章恢复为普通文章”，而不是把正文重新写回另一份存储。
-
-## 仓库结构
-
-- [src/main/java/run/halo/privateposts](src/main/java/run/halo/privateposts)：插件主类、模型、同步、阅读页路由、Finder、主题处理器
-- [src/main/resources/plugin.yaml](src/main/resources/plugin.yaml)：插件清单
-- [src/main/resources/templates/private-post.html](src/main/resources/templates/private-post.html)：独立阅读页模板
-- [src/main/resources/extensions/post-annotation-setting.yaml](src/main/resources/extensions/post-annotation-setting.yaml)：文章设置里的私密正文工具
-- [src/main/resources/extensions/reverse-proxy-reader.yaml](src/main/resources/extensions/reverse-proxy-reader.yaml)：reader 资源代理
-- [ui](ui)：Halo Console UI、文章设置工具、reader 前端代码
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：当前实现的分层、数据流和边界
 - [docs/ROADMAP.md](docs/ROADMAP.md)：阶段性进度和后续计划
 - [docs/ZKVAULT_INTEGRATION.md](docs/ZKVAULT_INTEGRATION.md)：协议版本与边界说明
+- [docs/MAINTENANCE.md](docs/MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
 
 ## 开发要求
 
@@ -193,6 +178,15 @@ npm run build
 ```
 
 因为 `slug` 允许包含 `/`，公开阅读页和公开 JSON 端点都使用查询参数 `slug`。
+
+## 仓库结构
+
+- [src/main/java/run/halo/privateposts](src/main/java/run/halo/privateposts)：插件主类、模型、同步、阅读页路由、Finder、主题处理器
+- [src/main/resources/plugin.yaml](src/main/resources/plugin.yaml)：插件清单
+- [src/main/resources/templates/private-post.html](src/main/resources/templates/private-post.html)：独立阅读页模板
+- [src/main/resources/extensions/post-annotation-setting.yaml](src/main/resources/extensions/post-annotation-setting.yaml)：文章设置里的私密正文工具
+- [src/main/resources/extensions/reverse-proxy-reader.yaml](src/main/resources/extensions/reverse-proxy-reader.yaml)：reader 资源代理
+- [ui](ui)：Halo Console UI、文章设置工具、reader 前端代码
 
 ## 当前不做的事情
 
