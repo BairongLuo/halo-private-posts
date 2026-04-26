@@ -9,3 +9,5 @@ ui/node_modules/
 .vscode/
 *.iml
 .DS_Store
+.codex-backups/
+.codex-cache/
