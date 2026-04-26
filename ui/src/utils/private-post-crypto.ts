@@ -1,22 +1,24 @@
 import { marked } from 'marked'
 import { scrypt } from 'scrypt-js'
 
-import type { AuthorKeyRecipient } from '@/types/author-key'
 import type {
   BundleMetadata,
   DecryptedPrivatePostDocument,
   EncryptedPrivatePostBundle,
   PasswordSlot,
+  RecoverySlot,
 } from '@/types/private-post'
 import {
-  unwrapContentKeyWithAuthorKey,
-  wrapContentKeyForAuthor,
-} from '@/utils/author-key-crypto'
+  deriveRecoveryKeyFromMnemonic,
+  RECOVERY_KEY_WRAP_ALGORITHM,
+  RECOVERY_MNEMONIC_SCHEME,
+} from '@/utils/recovery-phrase'
 
 const BUNDLE_VERSION = 2
 const BUNDLE_CIPHER = 'aes-256-gcm'
 const BUNDLE_KDF = 'envelope'
 const PASSWORD_SLOT_KDF = 'scrypt'
+const AES_GCM_ALGORITHM = 'aes-256-gcm'
 const SCRYPT_N = 1 << 15
 const SCRYPT_R = 8
 const SCRYPT_P = 1
@@ -91,11 +93,6 @@ export function normalizeBundle(bundle: unknown): EncryptedPrivatePostBundle {
     throw new Error('Bundle 必须是 JSON 对象')
   }
 
-  const authorSlotsRaw = bundle.author_slots
-  if (!Array.isArray(authorSlotsRaw)) {
-    throw new Error('author_slots 必须是数组')
-  }
-
   return {
     version: readRequiredNumber(bundle.version, 'version'),
     payload_format: readNonEmptyString(bundle.payload_format, 'payload_format'),
@@ -105,7 +102,7 @@ export function normalizeBundle(bundle: unknown): EncryptedPrivatePostBundle {
     ciphertext: readNonEmptyString(bundle.ciphertext, 'ciphertext'),
     auth_tag: readNonEmptyString(bundle.auth_tag, 'auth_tag'),
     password_slot: normalizePasswordSlot(bundle.password_slot),
-    author_slots: authorSlotsRaw.map((slot) => normalizeAuthorSlot(slot)),
+    recovery_slot: normalizeRecoverySlot(bundle.recovery_slot),
     metadata: normalizeBundleMetadata(bundle.metadata),
   }
 }
@@ -113,7 +110,7 @@ export function normalizeBundle(bundle: unknown): EncryptedPrivatePostBundle {
 export async function encryptPrivatePost(
   document: DecryptedPrivatePostDocument,
   password: string,
-  authorRecipients: AuthorKeyRecipient[] = []
+  recoveryKeyBytes: Uint8Array
 ): Promise<EncryptedPrivatePostBundle> {
   const normalizedDocument = normalizePrivatePostDocument(document)
   if (password.length === 0) {
@@ -156,21 +153,18 @@ export async function encryptPrivatePost(
     throw new Error('生成 bundle 失败：密文长度异常')
   }
 
-  const wrappedContentKey = await createWrappedContentKey(password, contentKeyBytes)
+  const wrappedPasswordKey = await createPasswordWrappedContentKey(password, contentKeyBytes)
+  if (wrappedPasswordKey.wrappedContentKey.length <= AES_GCM_TAG_BYTES) {
+    throw new Error('生成 bundle 失败：password slot 长度异常')
+  }
 
-  if (wrappedContentKey.wrappedContentKey.length <= AES_GCM_TAG_BYTES) {
-    throw new Error('生成 bundle 失败：CEK 包裹长度异常')
+  const wrappedRecoveryKey = await createRecoveryWrappedContentKey(recoveryKeyBytes, contentKeyBytes)
+  if (wrappedRecoveryKey.wrappedContentKey.length <= AES_GCM_TAG_BYTES) {
+    throw new Error('生成 bundle 失败：recovery slot 长度异常')
   }
 
   const contentCiphertext = encryptedPayload.slice(0, -AES_GCM_TAG_BYTES)
   const contentAuthTag = encryptedPayload.slice(-AES_GCM_TAG_BYTES)
-  const authorSlots = await Promise.all(authorRecipients.map(async (recipient) => {
-    return {
-      key_id: recipient.keyId,
-      algorithm: recipient.algorithm,
-      wrapped_cek: await wrapContentKeyForAuthor(recipient.publicKey, contentKeyBytes),
-    }
-  }))
 
   return {
     version: BUNDLE_VERSION,
@@ -180,8 +174,8 @@ export async function encryptPrivatePost(
     data_iv: bytesToHex(contentIv),
     ciphertext: bytesToHex(contentCiphertext),
     auth_tag: bytesToHex(contentAuthTag),
-    password_slot: buildPasswordSlotFromWrappedContentKey(wrappedContentKey),
-    author_slots: authorSlots,
+    password_slot: buildPasswordSlotFromWrappedContentKey(wrappedPasswordKey),
+    recovery_slot: buildRecoverySlotFromWrappedContentKey(wrappedRecoveryKey),
     metadata: normalizedDocument.metadata,
   }
 }
@@ -201,22 +195,51 @@ export async function decryptPrivatePost(
   return await decryptDocumentWithContentKey(normalizedBundle, cek)
 }
 
-export async function decryptPrivatePostWithAuthorKey(
+export async function decryptPrivatePostWithRecoveryPhrase(
   bundle: EncryptedPrivatePostBundle,
-  privateKey: JsonWebKey
+  mnemonic: string
 ): Promise<DecryptedPrivatePostDocument> {
+  const recoveryKeyBytes = await deriveRecoveryKeyFromMnemonic(mnemonic)
   const normalizedBundle = normalizeBundle(bundle)
   validateSupportedBundle(normalizedBundle)
 
-  const cek = await unwrapContentKeyWithAuthorSlots(normalizedBundle, privateKey)
+  const cek = await unwrapContentKeyWithRecoveryKey(normalizedBundle, recoveryKeyBytes)
   return await decryptDocumentWithContentKey(normalizedBundle, cek)
 }
 
-export async function rewrapPrivatePostPassword(
+export async function rewrapPrivatePostPasswordWithKnownPassword(
   bundle: EncryptedPrivatePostBundle,
-  nextPassword: string,
-  privateKey: JsonWebKey
+  currentPassword: string,
+  nextPassword: string
 ): Promise<EncryptedPrivatePostBundle> {
+  const normalizedBundle = normalizeBundle(bundle)
+  if (currentPassword.length === 0 || nextPassword.length === 0) {
+    throw new Error('访问密码不能为空')
+  }
+
+  validateSupportedBundle(normalizedBundle)
+
+  const cek = await unwrapContentKeyWithPassword(normalizedBundle, currentPassword)
+  const wrappedContentKey = await createPasswordWrappedContentKey(nextPassword, cek)
+
+  return {
+    ...normalizedBundle,
+    metadata: {
+      ...normalizedBundle.metadata,
+    },
+    recovery_slot: {
+      ...normalizedBundle.recovery_slot,
+    },
+    password_slot: buildPasswordSlotFromWrappedContentKey(wrappedContentKey),
+  }
+}
+
+export async function rewrapPrivatePostPasswordWithRecoveryPhrase(
+  bundle: EncryptedPrivatePostBundle,
+  mnemonic: string,
+  nextPassword: string
+): Promise<EncryptedPrivatePostBundle> {
+  const recoveryKeyBytes = await deriveRecoveryKeyFromMnemonic(mnemonic)
   const normalizedBundle = normalizeBundle(bundle)
   if (nextPassword.length === 0) {
     throw new Error('访问密码不能为空')
@@ -224,17 +247,17 @@ export async function rewrapPrivatePostPassword(
 
   validateSupportedBundle(normalizedBundle)
 
-  const cek = await unwrapContentKeyWithAuthorSlots(normalizedBundle, privateKey)
-  const wrappedContentKey = await createWrappedContentKey(nextPassword, cek)
+  const cek = await unwrapContentKeyWithRecoveryKey(normalizedBundle, recoveryKeyBytes)
+  const wrappedContentKey = await createPasswordWrappedContentKey(nextPassword, cek)
 
   return {
     ...normalizedBundle,
     metadata: {
       ...normalizedBundle.metadata,
     },
-    author_slots: normalizedBundle.author_slots.map((slot) => ({
-      ...slot,
-    })),
+    recovery_slot: {
+      ...normalizedBundle.recovery_slot,
+    },
     password_slot: buildPasswordSlotFromWrappedContentKey(wrappedContentKey),
   }
 }
@@ -243,7 +266,7 @@ export async function renderMarkdown(markdown: string): Promise<string> {
   return await marked.parse(markdown)
 }
 
-function normalizePasswordSlot(passwordSlot: unknown) {
+function normalizePasswordSlot(passwordSlot: unknown): PasswordSlot {
   if (!isRecord(passwordSlot)) {
     throw new Error('password_slot 缺失')
   }
@@ -257,15 +280,17 @@ function normalizePasswordSlot(passwordSlot: unknown) {
   }
 }
 
-function normalizeAuthorSlot(authorSlot: unknown) {
-  if (!isRecord(authorSlot)) {
-    throw new Error('author_slot 必须是对象')
+function normalizeRecoverySlot(recoverySlot: unknown): RecoverySlot {
+  if (!isRecord(recoverySlot)) {
+    throw new Error('recovery_slot 缺失')
   }
 
   return {
-    key_id: readNonEmptyString(authorSlot.key_id, 'author_slot.key_id'),
-    algorithm: readNonEmptyString(authorSlot.algorithm, 'author_slot.algorithm'),
-    wrapped_cek: readNonEmptyString(authorSlot.wrapped_cek, 'author_slot.wrapped_cek'),
+    scheme: readNonEmptyString(recoverySlot.scheme, 'recovery_slot.scheme'),
+    wrap_alg: readNonEmptyString(recoverySlot.wrap_alg, 'recovery_slot.wrap_alg'),
+    wrap_iv: readNonEmptyString(recoverySlot.wrap_iv, 'recovery_slot.wrap_iv'),
+    wrapped_cek: readNonEmptyString(recoverySlot.wrapped_cek, 'recovery_slot.wrapped_cek'),
+    auth_tag: readNonEmptyString(recoverySlot.auth_tag, 'recovery_slot.auth_tag'),
   }
 }
 
@@ -284,6 +309,14 @@ function validateSupportedBundle(bundle: EncryptedPrivatePostBundle): void {
 
   if (bundle.password_slot.kdf !== PASSWORD_SLOT_KDF) {
     throw new Error('当前 bundle 的 password slot 算法不受支持')
+  }
+
+  if (bundle.recovery_slot.scheme !== RECOVERY_MNEMONIC_SCHEME) {
+    throw new Error('当前 bundle 的 recovery slot 方案不受支持')
+  }
+
+  if (bundle.recovery_slot.wrap_alg !== RECOVERY_KEY_WRAP_ALGORITHM) {
+    throw new Error('当前 bundle 的 recovery slot 包裹算法不受支持')
   }
 }
 
@@ -326,23 +359,41 @@ async function unwrapContentKeyWithPassword(
   }
 }
 
-async function unwrapContentKeyWithAuthorSlots(
+async function unwrapContentKeyWithRecoveryKey(
   bundle: EncryptedPrivatePostBundle,
-  privateKey: JsonWebKey
+  recoveryKeyBytes: Uint8Array
 ): Promise<Uint8Array> {
-  if (bundle.author_slots.length === 0) {
-    throw new Error('当前 bundle 没有可用的作者钥匙槽')
+  const cryptoApi = globalThis.crypto?.subtle
+  if (!cryptoApi) {
+    throw new Error('当前环境不支持 Web Crypto API')
   }
 
-  for (const slot of bundle.author_slots) {
-    try {
-      return await unwrapContentKeyWithAuthorKey(privateKey, slot.wrapped_cek)
-    } catch {
-      continue
-    }
-  }
+  const recoveryKey = await cryptoApi.importKey(
+    'raw',
+    recoveryKeyBytes,
+    'AES-GCM',
+    false,
+    ['decrypt']
+  )
+  const wrapIv = hexToBytes(bundle.recovery_slot.wrap_iv)
+  const wrappedCek = hexToBytes(bundle.recovery_slot.wrapped_cek)
+  const authTag = hexToBytes(bundle.recovery_slot.auth_tag)
 
-  throw new Error('当前本地作者私钥无法解锁这篇文章')
+  try {
+    const plaintext = await cryptoApi.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: wrapIv,
+        tagLength: AES_GCM_TAG_LENGTH,
+      },
+      recoveryKey,
+      joinBytes(wrappedCek, authTag)
+    )
+
+    return new Uint8Array(plaintext)
+  } catch {
+    throw new Error('恢复助记词错误，或恢复槽已损坏')
+  }
 }
 
 async function decryptDocumentWithContentKey(
@@ -398,7 +449,7 @@ async function derivePasswordKeyBytes(password: string, salt: Uint8Array): Promi
   )
 }
 
-async function createWrappedContentKey(password: string, contentKeyBytes: Uint8Array): Promise<{
+async function createPasswordWrappedContentKey(password: string, contentKeyBytes: Uint8Array): Promise<{
   salt: Uint8Array
   wrapIv: Uint8Array
   wrappedContentKey: Uint8Array
@@ -438,6 +489,45 @@ async function createWrappedContentKey(password: string, contentKeyBytes: Uint8A
   }
 }
 
+async function createRecoveryWrappedContentKey(
+  recoveryKeyBytes: Uint8Array,
+  contentKeyBytes: Uint8Array
+): Promise<{
+  wrapIv: Uint8Array
+  wrappedContentKey: Uint8Array
+}> {
+  const cryptoObject = globalThis.crypto
+  const cryptoApi = cryptoObject?.subtle
+  if (!cryptoObject?.getRandomValues || !cryptoApi) {
+    throw new Error('当前环境不支持 Web Crypto API')
+  }
+
+  const wrapIv = cryptoObject.getRandomValues(new Uint8Array(BUNDLE_IV_BYTES))
+  const recoveryKey = await cryptoApi.importKey(
+    'raw',
+    recoveryKeyBytes,
+    'AES-GCM',
+    false,
+    ['encrypt']
+  )
+  const wrappedContentKey = new Uint8Array(
+    await cryptoApi.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: wrapIv,
+        tagLength: AES_GCM_TAG_LENGTH,
+      },
+      recoveryKey,
+      contentKeyBytes
+    )
+  )
+
+  return {
+    wrapIv,
+    wrappedContentKey,
+  }
+}
+
 function buildPasswordSlotFromWrappedContentKey(args: {
   salt: Uint8Array
   wrapIv: Uint8Array
@@ -452,6 +542,22 @@ function buildPasswordSlotFromWrappedContentKey(args: {
     wrap_iv: bytesToHex(args.wrapIv),
     wrapped_cek: bytesToHex(passwordSlotCiphertext),
     auth_tag: bytesToHex(passwordSlotAuthTag),
+  }
+}
+
+function buildRecoverySlotFromWrappedContentKey(args: {
+  wrapIv: Uint8Array
+  wrappedContentKey: Uint8Array
+}): RecoverySlot {
+  const recoverySlotCiphertext = args.wrappedContentKey.slice(0, -AES_GCM_TAG_BYTES)
+  const recoverySlotAuthTag = args.wrappedContentKey.slice(-AES_GCM_TAG_BYTES)
+
+  return {
+    scheme: RECOVERY_MNEMONIC_SCHEME,
+    wrap_alg: AES_GCM_ALGORITHM,
+    wrap_iv: bytesToHex(args.wrapIv),
+    wrapped_cek: bytesToHex(recoverySlotCiphertext),
+    auth_tag: bytesToHex(recoverySlotAuthTag),
   }
 }
 

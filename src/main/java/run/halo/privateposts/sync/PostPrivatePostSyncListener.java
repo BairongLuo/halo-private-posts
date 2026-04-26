@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +15,9 @@ import reactor.core.publisher.Mono;
 import run.halo.app.core.extension.content.Post;
 import run.halo.app.event.post.PostDeletedEvent;
 import run.halo.app.event.post.PostPublishedEvent;
+import run.halo.app.event.post.PostUnpublishedEvent;
 import run.halo.app.event.post.PostUpdatedEvent;
+import run.halo.app.event.post.PostVisibleChangedEvent;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.privateposts.model.PrivatePost;
 import run.halo.privateposts.service.PrivatePostService;
@@ -50,6 +51,16 @@ public class PostPrivatePostSyncListener {
     }
 
     @EventListener
+    public void onPostUnpublished(PostUnpublishedEvent event) {
+        syncByPostName(event.getName());
+    }
+
+    @EventListener
+    public void onPostVisibleChanged(PostVisibleChangedEvent event) {
+        syncByPostName(event.getName());
+    }
+
+    @EventListener
     public void onPostDeleted(PostDeletedEvent event) {
         privatePostService.deleteByPostName(event.getName())
             .onErrorResume(error -> {
@@ -71,6 +82,10 @@ public class PostPrivatePostSyncListener {
 
     private Mono<Void> syncFromPost(Post post) {
         String postName = post.getMetadata().getName();
+        if (post.isDeleted() || Post.isRecycled(post.getMetadata())) {
+            return privatePostService.deleteByPostName(postName);
+        }
+
         Map<String, String> annotations = post.getMetadata() == null
             ? null
             : post.getMetadata().getAnnotations();
@@ -135,7 +150,7 @@ public class PostPrivatePostSyncListener {
             && StringUtils.hasText(bundle.getCiphertext())
             && StringUtils.hasText(bundle.getAuthTag())
             && isValidPasswordSlot(bundle.getPasswordSlot())
-            && isValidAuthorSlots(bundle.getAuthorSlots())
+            && isValidRecoverySlot(bundle.getRecoverySlot())
             && StringUtils.hasText(bundle.getMetadata().getSlug())
             && StringUtils.hasText(bundle.getMetadata().getTitle());
     }
@@ -149,19 +164,13 @@ public class PostPrivatePostSyncListener {
             && StringUtils.hasText(passwordSlot.getAuthTag());
     }
 
-    private static boolean isValidAuthorSlots(@Nullable List<PrivatePost.AuthorSlot> authorSlots) {
-        if (authorSlots == null) {
-            return false;
-        }
-
-        return authorSlots.stream().allMatch(PostPrivatePostSyncListener::isValidAuthorSlot);
-    }
-
-    private static boolean isValidAuthorSlot(@Nullable PrivatePost.AuthorSlot authorSlot) {
-        return authorSlot != null
-            && StringUtils.hasText(authorSlot.getKeyId())
-            && StringUtils.hasText(authorSlot.getAlgorithm())
-            && StringUtils.hasText(authorSlot.getWrappedCek());
+    private static boolean isValidRecoverySlot(@Nullable PrivatePost.RecoverySlot recoverySlot) {
+        return recoverySlot != null
+            && StringUtils.hasText(recoverySlot.getScheme())
+            && StringUtils.hasText(recoverySlot.getWrapAlg())
+            && StringUtils.hasText(recoverySlot.getWrapIv())
+            && StringUtils.hasText(recoverySlot.getWrappedCek())
+            && StringUtils.hasText(recoverySlot.getAuthTag());
     }
 
     private static String readExcerpt(Post post) {

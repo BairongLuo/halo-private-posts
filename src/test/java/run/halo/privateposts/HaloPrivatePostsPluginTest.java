@@ -8,22 +8,27 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Mono;
 import run.halo.app.extension.ExtensionClient;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.SchemeManager;
 import run.halo.app.plugin.PluginContext;
 import run.halo.privateposts.cleanup.PluginUninstallCleanupService;
+import run.halo.privateposts.service.PrivatePostService;
 
 class HaloPrivatePostsPluginTest {
     @Test
     void cleanupOnUninstallIfNeededShouldSkipNormalStop() {
         ExtensionClient extensionClient = mock(ExtensionClient.class);
         PluginUninstallCleanupService cleanupService = mock(PluginUninstallCleanupService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        when(privatePostService.cleanupStaleMappings()).thenReturn(Mono.just(0));
         HaloPrivatePostsPlugin plugin = new HaloPrivatePostsPlugin(
-            new PluginContext("halo-private-posts", "config", "0.5.5", null),
+            new PluginContext("halo-private-posts", "config", "0.7.4", null),
             mock(SchemeManager.class),
             extensionClient,
-            cleanupService
+            cleanupService,
+            privatePostService
         );
         run.halo.app.core.extension.Plugin pluginResource = new run.halo.app.core.extension.Plugin();
         Metadata metadata = new Metadata();
@@ -42,11 +47,14 @@ class HaloPrivatePostsPluginTest {
     void cleanupOnUninstallIfNeededShouldRunForDeletingPlugin() {
         ExtensionClient extensionClient = mock(ExtensionClient.class);
         PluginUninstallCleanupService cleanupService = mock(PluginUninstallCleanupService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        when(privatePostService.cleanupStaleMappings()).thenReturn(Mono.just(0));
         HaloPrivatePostsPlugin plugin = new HaloPrivatePostsPlugin(
-            new PluginContext("halo-private-posts", "config", "0.5.5", null),
+            new PluginContext("halo-private-posts", "config", "0.7.4", null),
             mock(SchemeManager.class),
             extensionClient,
-            cleanupService
+            cleanupService,
+            privatePostService
         );
         run.halo.app.core.extension.Plugin pluginResource = new run.halo.app.core.extension.Plugin();
         Metadata metadata = new Metadata();
@@ -57,7 +65,7 @@ class HaloPrivatePostsPluginTest {
         when(extensionClient.fetch(run.halo.app.core.extension.Plugin.class, "halo-private-posts"))
             .thenReturn(Optional.of(pluginResource));
         when(cleanupService.cleanup())
-            .thenReturn(new PluginUninstallCleanupService.CleanupSummary(1, 2, 3));
+            .thenReturn(new PluginUninstallCleanupService.CleanupSummary(1, 2));
 
         plugin.cleanupOnUninstallIfNeeded();
 

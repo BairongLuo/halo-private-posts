@@ -13,8 +13,8 @@
 负责：
 
 - Halo 插件注册
-- `PrivatePost` / `AuthorKey` 扩展资源定义
-- `spec.slug` / `spec.postName` / `spec.ownerName` / `spec.fingerprint` 索引
+- `PrivatePost` 扩展资源定义
+- `spec.slug` / `spec.postName` 索引
 - 文章设置 `AnnotationSetting`
 - `Post` 注解到 `PrivatePost` 的同步
 - 原文章页正文接管
@@ -28,9 +28,9 @@
 - Halo Console 管理页
 - Halo 文章列表中的状态字段
 - Halo 原生文章编辑页中的私密正文工具
-- 后台覆盖访问口令
+- 恢复助记词初始化与导入
+- 后台修改或重置访问口令
 - 锁定态 UI、解锁动作流和 Markdown 渲染
-- 默认作者钥匙自动初始化
 - 页面隐藏、离开和空闲超时重锁
 
 ### 浏览器密码学层
@@ -41,8 +41,9 @@
 - `CEK` 生成
 - 正文 `AES-GCM` 加密 / 解密
 - `password_slot` 的 `scrypt + AES-GCM` 包裹与解包
-- `author_slots[]` 的 `RSA-OAEP` 包裹与解包
-- 隐藏作者钥匙恢复 `CEK`
+- `recovery_slot` 的 `AES-GCM` 包裹与解包
+- `mnemonic -> entropy -> HKDF-SHA-256` 恢复密钥派生
+- 恢复助记词恢复 `CEK`
 
 ## 核心资源
 
@@ -62,24 +63,11 @@
 - 给主题和 reader 提供统一读取入口
 - 冗余公开元数据，减少匿名阅读路径对原 `Post` 的依赖
 
-### `AuthorKey`
+### 浏览器本地恢复状态
 
-`AuthorKey` 只保存作者公钥元数据：
+恢复助记词确认或导入后，会把恢复熵状态保存在浏览器 `localStorage`。
 
-- `ownerName`
-- `displayName`
-- `fingerprint`
-- `algorithm`
-- `publicKey`
-- `createdAt`
-
-作者私钥不进入服务端资源模型。
-
-### 浏览器本地私钥存储
-
-作者私钥保存在浏览器 `localStorage`。
-
-这部分是阅读端作者钥匙解锁的前提，也是“服务端不保存私钥”的实现方式。
+这部分是新文章生成 `recovery_slot`、以及忘记旧口令时恢复 `CEK` 的前提，也是“服务端不保存恢复秘密”的实现方式。
 
 ## Bundle 结构
 
@@ -91,25 +79,26 @@
   - `auth_tag`
 - 读者密码槽
   - `password_slot`
-- 作者钥匙槽
-  - `author_slots[]`
+- 恢复槽
+  - `recovery_slot`
 - 元数据
   - `metadata`
 
 关键点：
 
 - 正文只加密一次
-- `password_slot` 和 `author_slots[]` 包裹的是同一个 `CEK`
-- 密码解锁和作者钥匙解锁最终都回到同一个正文解密流程
+- `password_slot` 和 `recovery_slot` 包裹的是同一个 `CEK`
+- 密码解锁和恢复助记词解锁最终都回到同一个正文解密流程
 
 ## 关键流程
 
-### 作者钥匙生成流
+### 恢复助记词初始化流
 
-1. 作者进入文章设置或相关页面时，前端检查当前账号是否已有作者钥匙
-2. 若还没有，则浏览器自动生成默认 `RSA-OAEP` 密钥对
-3. 公钥写入 `AuthorKey`
-4. 私钥保存在本地浏览器
+1. 作者进入 `/console/private-posts`
+2. 浏览器生成随机恢复熵
+3. 前端按固定词表和校验规则编码为英文助记词
+4. 用户离线保存并完成确认
+5. 浏览器把恢复熵状态保存到本地 `localStorage`
 
 ### 文章加锁流
 
@@ -118,7 +107,7 @@
 3. 浏览器生成随机 `CEK`
 4. 用 `CEK` 加密正文
 5. 用密码生成 `password_slot`
-6. 用当前账号默认作者公钥生成 `author_slots[]`
+6. 用当前浏览器里的恢复状态派生恢复密钥并生成 `recovery_slot`
 7. bundle 写回文章注解
 8. 文章保存事件触发同步，生成或更新 `PrivatePost`
 
@@ -132,27 +121,25 @@
 6. 取回 `CEK` 后解正文
 7. 渲染 Markdown，并在空闲/离开/切后台后重锁
 
-### 作者钥匙恢复流
-
-当前版本不在阅读 UI 暴露“作者钥匙直接解锁”入口。
-
-作者钥匙链路主要用于后台覆盖访问口令：
+### 已知旧口令修改流
 
 1. 后台页读取已加密文章对应的 bundle
-2. 从当前浏览器本地读取隐藏作者私钥
-3. 按 `author_slots[]` 里的 `key_id` 匹配本地私钥
-4. 用作者私钥解开某个 `wrapped_cek`
+2. 用户输入当前访问口令
+3. 前端用当前访问口令解开 `password_slot`
+4. 取回 `CEK`
+5. 用新的访问口令重新生成 `password_slot`
+6. 仅重写 `password_slot`，不改正文密文和 `recovery_slot`
+
+### 恢复助记词重置流
+
+1. 后台页读取已加密文章对应的 bundle
+2. 用户输入恢复助记词
+3. 前端用固定规则派生恢复密钥
+4. 用恢复密钥解开 `recovery_slot`
 5. 取回 `CEK`
-6. 仅重写 `password_slot`，不改正文密文和 `author_slots[]`
-
-### 后台口令覆盖流
-
-1. 作者在 `/console/private-posts` 选中一篇已加密文章
-2. 前端从当前浏览器本地读取隐藏作者私钥
-3. 用作者私钥解开某个 `author_slot`，取回 `CEK`
-4. 用新的访问口令重新生成 `password_slot`
-5. 仅覆盖文章注解里的 bundle，不改动正文密文和 `author_slots[]`
-6. 文章保存事件再次同步 `PrivatePost`
+6. 用新的访问口令重新生成 `password_slot`
+7. 仅覆盖文章注解里的 bundle，不改动正文密文和 `recovery_slot`
+8. 文章保存事件再次同步 `PrivatePost`
 
 ### 删除插件清理流
 
@@ -161,7 +148,7 @@
 3. 插件读取自身 `Plugin.deletionTimestamp`
 4. 若不是删除态，则只做正常停机
 5. 若是删除态，则最佳努力清除所有文章上的 `privateposts.halo.run/bundle`
-6. 同时删除 `PrivatePost` 与 `AuthorKey`
+6. 同时删除 `PrivatePost`
 7. 插件继续停止并卸载
 
 ## 当前主入口与独立入口
@@ -177,7 +164,7 @@
 
 它是独立阅读入口，但主要阅读体验仍然优先收口到原文章页。
 
-当前阅读端公开交互只保留密码输入，不暴露作者钥匙入口。
+当前阅读端公开交互只保留密码输入，不暴露恢复助记词入口。
 
 ## 边界
 
@@ -185,12 +172,12 @@
 
 - 第二套正文编辑系统
 - 服务端密码保存
-- 服务端私钥托管
+- 服务端恢复秘密托管
 - 团队级复杂密钥治理
 
 这个仓库负责：
 
 - Halo 原生文章流接入
 - 浏览器端本地加密解密
-- 默认作者恢复钥匙兜底
+- 恢复助记词兜底
 - 主题接入与阅读体验

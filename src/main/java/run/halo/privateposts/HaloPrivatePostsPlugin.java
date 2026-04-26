@@ -14,8 +14,8 @@ import run.halo.app.extension.index.IndexSpec;
 import run.halo.app.plugin.BasePlugin;
 import run.halo.app.plugin.PluginContext;
 import run.halo.privateposts.cleanup.PluginUninstallCleanupService;
-import run.halo.privateposts.model.AuthorKey;
 import run.halo.privateposts.model.PrivatePost;
+import run.halo.privateposts.service.PrivatePostService;
 
 @Component
 public class HaloPrivatePostsPlugin extends BasePlugin {
@@ -24,15 +24,18 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
     private final SchemeManager schemeManager;
     private final ExtensionClient extensionClient;
     private final PluginUninstallCleanupService cleanupService;
+    private final PrivatePostService privatePostService;
 
     public HaloPrivatePostsPlugin(PluginContext pluginContext,
                                   SchemeManager schemeManager,
                                   ExtensionClient extensionClient,
-                                  PluginUninstallCleanupService cleanupService) {
+                                  PluginUninstallCleanupService cleanupService,
+                                  PrivatePostService privatePostService) {
         super(pluginContext);
         this.schemeManager = schemeManager;
         this.extensionClient = extensionClient;
         this.cleanupService = cleanupService;
+        this.privatePostService = privatePostService;
     }
 
     @Override
@@ -54,19 +57,15 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
                     privatePost -> specValue(privatePost,
                         PrivatePost.PrivatePostSpec::getPublishedAt))));
         });
-        schemeManager.register(AuthorKey.class, indexSpecs -> {
-            indexSpecs.add(new IndexSpec()
-                .setName("spec.fingerprint")
-                .setUnique(true)
-                .setIndexFunc(simpleAttribute(AuthorKey.class,
-                    authorKey -> authorKeySpecValue(authorKey,
-                        AuthorKey.AuthorKeySpec::getFingerprint))));
-            indexSpecs.add(new IndexSpec()
-                .setName("spec.ownerName")
-                .setIndexFunc(simpleAttribute(AuthorKey.class,
-                    authorKey -> authorKeySpecValue(authorKey,
-                        AuthorKey.AuthorKeySpec::getOwnerName))));
-        });
+
+        privatePostService.cleanupStaleMappings()
+            .doOnNext(deletedCount -> {
+                if (deletedCount > 0) {
+                    log.info("Removed {} stale private post mappings on plugin startup.", deletedCount);
+                }
+            })
+            .doOnError(error -> log.warn("Failed to cleanup stale private post mappings on startup.", error))
+            .subscribe();
     }
 
     @Override
@@ -76,11 +75,6 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
         Scheme scheme = schemeManager.get(PrivatePost.class);
         if (scheme != null) {
             schemeManager.unregister(scheme);
-        }
-
-        Scheme authorKeyScheme = schemeManager.get(AuthorKey.class);
-        if (authorKeyScheme != null) {
-            schemeManager.unregister(authorKeyScheme);
         }
     }
 
@@ -98,11 +92,10 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
 
             PluginUninstallCleanupService.CleanupSummary summary = cleanupService.cleanup();
             log.info(
-                "Completed uninstall cleanup for plugin {}. Unlocked {} posts, deleted {} private posts, deleted {} author keys.",
+                "Completed uninstall cleanup for plugin {}. Unlocked {} posts, deleted {} private posts.",
                 getContext().getName(),
                 summary.unlockedPosts(),
-                summary.deletedPrivatePosts(),
-                summary.deletedAuthorKeys()
+                summary.deletedPrivatePosts()
             );
         } catch (Exception error) {
             log.warn("Failed uninstall cleanup for plugin {} during stop().", getContext().getName(), error);
@@ -115,13 +108,5 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
             return null;
         }
         return extractor.apply(privatePost.getSpec());
-    }
-
-    private static String authorKeySpecValue(AuthorKey authorKey,
-                                             Function<AuthorKey.AuthorKeySpec, String> extractor) {
-        if (authorKey == null || authorKey.getSpec() == null) {
-            return null;
-        }
-        return extractor.apply(authorKey.getSpec());
     }
 }

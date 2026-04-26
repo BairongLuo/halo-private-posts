@@ -1,5 +1,6 @@
 import { axiosInstance } from '@halo-dev/api-client'
 
+import { isHaloPostActive } from '@/api/posts'
 import type { EncryptedPrivatePostBundle, PrivatePost, PrivatePostList } from '@/types/private-post'
 
 const API_BASE = '/apis/privateposts.halo.run/v1alpha1/privateposts'
@@ -12,7 +13,13 @@ export async function listPrivatePosts(): Promise<PrivatePost[]> {
       sort: 'metadata.creationTimestamp,desc',
     },
   })
-  return data.items ?? []
+
+  const items = data.items ?? []
+  const activeItems = await Promise.all(
+    items.map(async (item) => ((await isHaloPostActive(item.spec.postName)) ? item : null))
+  )
+
+  return activeItems.filter((item): item is PrivatePost => item !== null)
 }
 
 export async function createPrivatePost(privatePost: PrivatePost): Promise<PrivatePost> {

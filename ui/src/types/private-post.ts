@@ -13,10 +13,12 @@ export interface PasswordSlot {
   auth_tag: string
 }
 
-export interface AuthorSlot {
-  key_id: string
-  algorithm: string
+export interface RecoverySlot {
+  scheme: string
+  wrap_alg: string
+  wrap_iv: string
   wrapped_cek: string
+  auth_tag: string
 }
 
 export interface EncryptedPrivatePostBundle {
@@ -28,7 +30,7 @@ export interface EncryptedPrivatePostBundle {
   ciphertext: string
   auth_tag: string
   password_slot: PasswordSlot
-  author_slots: AuthorSlot[]
+  recovery_slot: RecoverySlot
   metadata: BundleMetadata
 }
 

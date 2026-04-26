@@ -2,12 +2,16 @@ import { webcrypto } from 'node:crypto'
 
 import { describe, expect, it } from 'vitest'
 
-import { generateAuthorKeyRecord } from './author-key-crypto'
+import {
+  createRecoveryMnemonicSetup,
+  deriveRecoveryKeyFromMnemonic,
+} from './recovery-phrase'
 import {
   decryptPrivatePost,
-  decryptPrivatePostWithAuthorKey,
+  decryptPrivatePostWithRecoveryPhrase,
   encryptPrivatePost,
-  rewrapPrivatePostPassword,
+  rewrapPrivatePostPasswordWithKnownPassword,
+  rewrapPrivatePostPasswordWithRecoveryPhrase,
 } from './private-post-crypto'
 
 if (!globalThis.crypto?.subtle) {
@@ -18,7 +22,9 @@ if (!globalThis.crypto?.subtle) {
 }
 
 describe('private post envelope encryption', () => {
-  it('round-trips a browser-generated bundle with password slot', async () => {
+  it('round-trips a browser-generated bundle with password and recovery slots', async () => {
+    const recoverySetup = await createRecoveryMnemonicSetup()
+    const recoveryKey = await deriveRecoveryKeyFromMnemonic(recoverySetup.mnemonic)
     const bundle = await encryptPrivatePost(
       {
         metadata: {
@@ -29,7 +35,8 @@ describe('private post envelope encryption', () => {
         },
         markdown: '# Private\n\nHello from the editor block.',
       },
-      'editor-password'
+      'editor-password',
+      recoveryKey
     )
 
     const document = await decryptPrivatePost(bundle, 'editor-password')
@@ -39,7 +46,8 @@ describe('private post envelope encryption', () => {
     expect(bundle.cipher).toBe('aes-256-gcm')
     expect(bundle.kdf).toBe('envelope')
     expect(bundle.password_slot.kdf).toBe('scrypt')
-    expect(bundle.author_slots).toHaveLength(0)
+    expect(bundle.recovery_slot.scheme).toBe('mnemonic-v1')
+    expect(bundle.recovery_slot.wrap_alg).toBe('aes-256-gcm')
     expect(document.metadata.slug).toBe('posts/halo-private-posts')
     expect(document.metadata.title).toBe('Halo Private Posts')
     expect(document.metadata.excerpt).toBe('Editor generated bundle')
@@ -47,64 +55,46 @@ describe('private post envelope encryption', () => {
     expect(document.markdown).toBe('# Private\n\nHello from the editor block.')
   })
 
-  it('supports author slots for password-independent recovery', async () => {
-    const authorKey = await generateAuthorKeyRecord({
-      ownerName: 'tester',
-      displayName: 'Test Author Key',
-    })
+  it('supports recovery phrase for password-independent recovery', async () => {
+    const recoverySetup = await createRecoveryMnemonicSetup()
+    const recoveryKey = await deriveRecoveryKeyFromMnemonic(recoverySetup.mnemonic)
     const bundle = await encryptPrivatePost(
       {
         metadata: {
-          slug: 'posts/with-author-slot',
-          title: 'With Author Slot',
+          slug: 'posts/with-recovery-slot',
+          title: 'With Recovery Slot',
         },
-        markdown: '# Author Slot\n\nRecovered with private key.',
+        markdown: '# Recovery Slot\n\nRecovered with mnemonic.',
       },
       'reader-password',
-      [
-        {
-          keyId: authorKey.fingerprint,
-          algorithm: authorKey.algorithm,
-          publicKey: authorKey.publicKey,
-        },
-      ]
+      recoveryKey
     )
 
-    const document = await decryptPrivatePostWithAuthorKey(bundle, authorKey.privateKey)
+    const document = await decryptPrivatePostWithRecoveryPhrase(bundle, recoverySetup.mnemonic)
 
-    expect(bundle.author_slots).toHaveLength(1)
-    expect(bundle.author_slots[0].key_id).toBe(authorKey.fingerprint)
-    expect(document.metadata.slug).toBe('posts/with-author-slot')
-    expect(document.markdown).toBe('# Author Slot\n\nRecovered with private key.')
+    expect(document.metadata.slug).toBe('posts/with-recovery-slot')
+    expect(document.markdown).toBe('# Recovery Slot\n\nRecovered with mnemonic.')
   })
 
-  it('rewraps only the password slot when resetting the password', async () => {
-    const authorKey = await generateAuthorKeyRecord({
-      ownerName: 'tester',
-      displayName: 'Reset Password Key',
-    })
+  it('rewraps password slot with known current password', async () => {
+    const recoverySetup = await createRecoveryMnemonicSetup()
+    const recoveryKey = await deriveRecoveryKeyFromMnemonic(recoverySetup.mnemonic)
     const bundle = await encryptPrivatePost(
       {
         metadata: {
-          slug: 'posts/reset-password',
-          title: 'Reset Password',
+          slug: 'posts/rotate-password',
+          title: 'Rotate Password',
         },
-        markdown: '# Reset\n\nPassword slot only.',
+        markdown: '# Rotate\n\nKnown password path.',
       },
       'old-password',
-      [
-        {
-          keyId: authorKey.fingerprint,
-          algorithm: authorKey.algorithm,
-          publicKey: authorKey.publicKey,
-        },
-      ]
+      recoveryKey
     )
 
-    const rewrapped = await rewrapPrivatePostPassword(
+    const rewrapped = await rewrapPrivatePostPasswordWithKnownPassword(
       bundle,
-      'new-password',
-      authorKey.privateKey
+      'old-password',
+      'new-password'
     )
 
     await expect(decryptPrivatePost(rewrapped, 'old-password')).rejects.toThrow(
@@ -112,15 +102,47 @@ describe('private post envelope encryption', () => {
     )
 
     const passwordDocument = await decryptPrivatePost(rewrapped, 'new-password')
-    const authorDocument = await decryptPrivatePostWithAuthorKey(rewrapped, authorKey.privateKey)
+    const recoveryDocument = await decryptPrivatePostWithRecoveryPhrase(
+      rewrapped,
+      recoverySetup.mnemonic
+    )
 
     expect(rewrapped.version).toBe(bundle.version)
     expect(rewrapped.ciphertext).toBe(bundle.ciphertext)
     expect(rewrapped.auth_tag).toBe(bundle.auth_tag)
     expect(rewrapped.data_iv).toBe(bundle.data_iv)
-    expect(rewrapped.author_slots).toEqual(bundle.author_slots)
+    expect(rewrapped.recovery_slot).toEqual(bundle.recovery_slot)
     expect(rewrapped.password_slot.wrapped_cek).not.toBe(bundle.password_slot.wrapped_cek)
-    expect(passwordDocument.markdown).toBe('# Reset\n\nPassword slot only.')
-    expect(authorDocument.markdown).toBe('# Reset\n\nPassword slot only.')
+    expect(passwordDocument.markdown).toBe('# Rotate\n\nKnown password path.')
+    expect(recoveryDocument.markdown).toBe('# Rotate\n\nKnown password path.')
+  })
+
+  it('rewraps password slot with recovery phrase when current password is unavailable', async () => {
+    const recoverySetup = await createRecoveryMnemonicSetup()
+    const recoveryKey = await deriveRecoveryKeyFromMnemonic(recoverySetup.mnemonic)
+    const bundle = await encryptPrivatePost(
+      {
+        metadata: {
+          slug: 'posts/reset-with-mnemonic',
+          title: 'Reset With Mnemonic',
+        },
+        markdown: '# Reset\n\nRecovery path.',
+      },
+      'initial-password',
+      recoveryKey
+    )
+
+    const rewrapped = await rewrapPrivatePostPasswordWithRecoveryPhrase(
+      bundle,
+      recoverySetup.mnemonic,
+      'recovered-password'
+    )
+
+    await expect(decryptPrivatePost(rewrapped, 'initial-password')).rejects.toThrow(
+      '访问密码错误，或密文已损坏'
+    )
+
+    const passwordDocument = await decryptPrivatePost(rewrapped, 'recovered-password')
+    expect(passwordDocument.markdown).toBe('# Reset\n\nRecovery path.')
   })
 })

@@ -19,6 +19,7 @@ export interface HaloPostContent {
 
 const PRIVATE_POST_BUNDLE_ANNOTATION = 'privateposts.halo.run/bundle'
 const PRIVATE_POST_BUNDLE_ANNOTATION_PATH = '/metadata/annotations/privateposts.halo.run~1bundle'
+const POST_DELETED_LABEL = 'content.halo.run/deleted'
 
 export async function listHaloPosts(keyword = ''): Promise<HaloPostSummary[]> {
   const { data } = await consoleApiClient.content.post.listPosts({
@@ -34,6 +35,19 @@ export async function listHaloPosts(keyword = ''): Promise<HaloPostSummary[]> {
 export async function getHaloPostByName(name: string): Promise<HaloPostSummary> {
   const { data } = await coreApiClient.content.post.getPost({ name })
   return mapPostToSummary(data)
+}
+
+export async function isHaloPostActive(name: string): Promise<boolean> {
+  try {
+    const { data: post } = await coreApiClient.content.post.getPost({ name })
+    return !(
+      post.spec.deleted
+      || post.metadata.deletionTimestamp
+      || post.metadata.labels?.[POST_DELETED_LABEL] === 'true'
+    )
+  } catch {
+    return false
+  }
 }
 
 export async function fetchHaloPostHeadContent(name: string): Promise<HaloPostContent> {

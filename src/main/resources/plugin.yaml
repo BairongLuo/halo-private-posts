@@ -15,5 +15,5 @@ spec:
   displayName: "Halo Private Posts"
   description: "为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。"
   license:
-    - name: "GPL-3.0"
+    - name: "GPL-3.0-only"
       url: "https://github.com/lbr/halo-private-posts/blob/main/LICENSE"

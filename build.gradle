@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '0.5.5'
+version = '0.7.8'
 
 repositories {
     mavenCentral()
@@ -51,14 +51,14 @@ tasks.register('buildReaderUi', NpmTask) {
     dependsOn tasks.named('npmInstall')
 }
 
-tasks.register('processConsoleUiResources', Copy) {
+tasks.register('processConsoleUiResources', Sync) {
     from file("${project.projectDir}/ui/build/dist")
     into layout.buildDirectory.dir('resources/main/console')
     dependsOn tasks.named('buildConsoleUi')
     shouldRunAfter tasks.named('processResources')
 }
 
-tasks.register('processReaderUiResources', Copy) {
+tasks.register('processReaderUiResources', Sync) {
     from file("${project.projectDir}/ui/dist-reader")
     into layout.buildDirectory.dir('resources/main/static/reader')
     dependsOn tasks.named('buildReaderUi')

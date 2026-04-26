@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { getHaloPostByName, persistPrivatePostBundleAnnotation } from '@/api/posts'
 import { buildPrivatePostResource, listPrivatePosts, updatePrivatePost } from '@/api/private-posts'
+import RecoveryMnemonicManager from '@/components/RecoveryMnemonicManager.vue'
 import type { HaloPostSummary } from '@/api/posts'
 import type { EncryptedPrivatePostBundle, PrivatePost } from '@/types/private-post'
 import { syncPrivatePostRegistry } from '@/stores/private-post-registry'
-import { listLocalAuthorKeys } from '@/utils/author-key-store'
-import { ensureDefaultAuthorKey } from '@/utils/default-author-key'
-import { rewrapPrivatePostPassword } from '@/utils/private-post-crypto'
+import { hasLocalRecoverySecretState } from '@/utils/recovery-secret-store'
+import {
+  rewrapPrivatePostPasswordWithKnownPassword,
+  rewrapPrivatePostPasswordWithRecoveryPhrase,
+} from '@/utils/private-post-crypto'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,13 +20,21 @@ const router = useRouter()
 const items = ref<PrivatePost[]>([])
 const loading = ref(false)
 const loadingSelectedPost = ref(false)
-const resettingPassword = ref(false)
+const rotatingPassword = ref(false)
+const resettingWithMnemonic = ref(false)
 const errorMessage = ref('')
 const selectedPost = ref<HaloPostSummary | null>(null)
+const currentPassword = ref('')
 const nextPassword = ref('')
-const passwordMessage = ref('')
-const passwordMessageTone = ref<'neutral' | 'success' | 'error'>('neutral')
-const localAuthorKeys = ref(listLocalAuthorKeys())
+const confirmNextPassword = ref('')
+const rotateMessage = ref('')
+const rotateMessageTone = ref<'neutral' | 'success' | 'error'>('neutral')
+const recoveryMnemonic = ref('')
+const recoveryNextPassword = ref('')
+const recoveryConfirmNextPassword = ref('')
+const recoveryMessage = ref('')
+const recoveryMessageTone = ref<'neutral' | 'success' | 'error'>('neutral')
+const localRecoveryReady = ref(hasLocalRecoverySecretState())
 
 const routePostName = computed(() => readQueryString(route.query.postName))
 const selectedPostMapping = computed(() => {
@@ -54,61 +65,68 @@ const selectedArticleSlug = computed(() => {
 
   return selectedPostMapping.value?.spec.slug ?? ''
 })
-const matchingLocalAuthorKey = computed(() => {
-  const mapping = selectedPostMapping.value
-  if (!mapping) {
-    return null
-  }
-
-  const authorSlotFingerprints = new Set(mapping.spec.bundle.author_slots.map((slot) => slot.key_id))
-  if (authorSlotFingerprints.size === 0) {
-    return null
-  }
-
-  return localAuthorKeys.value.find((item) => authorSlotFingerprints.has(item.fingerprint)) ?? null
-})
-const hasAnyLocalAuthorKey = computed(() => localAuthorKeys.value.length > 0)
-const passwordResetAvailability = computed(() => {
-  const mapping = selectedPostMapping.value
+const passwordRotationAvailability = computed(() => {
   if (!routePostName.value) {
-    return '先从列表里选中一篇文章，再在这里重设访问口令。'
+    return '先从列表选中一篇文章。'
   }
 
-  if (!mapping) {
-    return '当前文章还没有同步出私密正文，暂时不能重设访问口令。'
+  if (!selectedPostMapping.value) {
+    return '当前文章还没有同步出私密正文。'
   }
 
-  if (mapping.spec.bundle.author_slots.length === 0) {
-    return '这篇文章没有作者钥匙槽，当前版本不能在后台重设口令。'
-  }
-
-  if (!hasAnyLocalAuthorKey.value) {
-    return '当前浏览器还没有可用的隐藏作者私钥。请先回文章设置页重新加锁一次，系统会补齐当前浏览器可用的默认钥匙。'
-  }
-
-  if (!matchingLocalAuthorKey.value) {
-    return '当前浏览器已有隐藏作者私钥，但这篇文章仍绑定旧作者钥匙。回文章设置页重新加锁一次后，后台就可以直接覆盖口令。'
-  }
-
-  return '后台只会重写 password_slot，不会改动正文密文，也不会显示旧口令。'
+  return '输入旧口令和新口令。'
 })
-const canResetPassword = computed(() => {
+const mnemonicResetAvailability = computed(() => {
+  if (!routePostName.value) {
+    return '先从列表选中一篇文章。'
+  }
+
+  if (!selectedPostMapping.value) {
+    return '当前文章还没有同步出私密正文。'
+  }
+
+  if (localRecoveryReady.value) {
+    return '输入助记词和新口令。'
+  }
+
+  return '当前浏览器未导入助记词，也可手动输入助记词重置。'
+})
+const canRotatePassword = computed(() => {
   return Boolean(
     selectedPostMapping.value
-    && matchingLocalAuthorKey.value
-    && selectedPostMapping.value.spec.bundle.author_slots.length > 0
+      && currentPassword.value.trim()
+      && nextPassword.value.trim()
+      && confirmNextPassword.value.trim()
+  )
+})
+const canResetWithMnemonic = computed(() => {
+  return Boolean(
+    selectedPostMapping.value
+      && recoveryMnemonic.value.trim()
+      && recoveryNextPassword.value.trim()
+      && recoveryConfirmNextPassword.value.trim()
   )
 })
 
-onMounted(async () => {
-  await warmupHiddenAuthorKey()
-  await refreshItems()
-  await syncSelectionFromRoute()
+onMounted(() => {
+  syncLocalRecoveryState()
+  window.addEventListener('storage', handleStorageChange)
+  void initializeView()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('storage', handleStorageChange)
 })
 
 watch(routePostName, () => {
+  currentPassword.value = ''
   nextPassword.value = ''
-  clearPasswordMessage()
+  confirmNextPassword.value = ''
+  recoveryMnemonic.value = ''
+  recoveryNextPassword.value = ''
+  recoveryConfirmNextPassword.value = ''
+  clearRotateMessage()
+  clearRecoveryMessage()
   void syncSelectionFromRoute()
 })
 
@@ -164,71 +182,143 @@ async function selectPost(postName: string) {
   })
 }
 
-function clearPasswordMessage() {
-  passwordMessage.value = ''
-  passwordMessageTone.value = 'neutral'
+function clearRotateMessage() {
+  rotateMessage.value = ''
+  rotateMessageTone.value = 'neutral'
 }
 
-function setPasswordMessage(tone: 'neutral' | 'success' | 'error', message: string) {
-  passwordMessageTone.value = tone
-  passwordMessage.value = message
+function clearRecoveryMessage() {
+  recoveryMessage.value = ''
+  recoveryMessageTone.value = 'neutral'
 }
 
-async function resetPassword() {
-  clearPasswordMessage()
+function setRotateMessage(tone: 'neutral' | 'success' | 'error', message: string) {
+  rotateMessageTone.value = tone
+  rotateMessage.value = message
+}
+
+function setRecoveryMessage(tone: 'neutral' | 'success' | 'error', message: string) {
+  recoveryMessageTone.value = tone
+  recoveryMessage.value = message
+}
+
+async function rotatePasswordWithCurrentPassword() {
+  clearRotateMessage()
 
   const mapping = selectedPostMapping.value
-  const localAuthorKey = matchingLocalAuthorKey.value
-  const normalizedPassword = nextPassword.value.trim()
+  const normalizedCurrentPassword = currentPassword.value.trim()
+  const normalizedNextPassword = nextPassword.value.trim()
+  const normalizedConfirmNextPassword = confirmNextPassword.value.trim()
 
   if (!mapping) {
-    setPasswordMessage('error', '请先选择一篇已加密文章。')
+    setRotateMessage('error', '请先选择一篇已加密文章。')
     return
   }
 
-  if (!normalizedPassword) {
-    setPasswordMessage('error', '请输入新的访问口令。')
+  if (!normalizedCurrentPassword) {
+    setRotateMessage('error', '请输入当前访问口令。')
     return
   }
 
-  if (!localAuthorKey) {
-    setPasswordMessage(
-      'error',
-      hasAnyLocalAuthorKey.value
-        ? '当前浏览器已有隐藏作者私钥，但这篇文章绑定的是旧钥匙。请回文章设置页重新加锁一次。'
-        : '当前浏览器没有隐藏作者私钥，不能重设口令。请先回文章设置页重新加锁一次。'
-    )
+  if (!normalizedNextPassword) {
+    setRotateMessage('error', '请输入新的访问口令。')
     return
   }
 
-  resettingPassword.value = true
+  if (!normalizedConfirmNextPassword) {
+    setRotateMessage('error', '请再次输入新的访问口令。')
+    return
+  }
+
+  if (normalizedNextPassword !== normalizedConfirmNextPassword) {
+    setRotateMessage('error', '两次输入的新访问口令不一致。')
+    return
+  }
+
+  rotatingPassword.value = true
 
   try {
-    const nextBundle = await rewrapPrivatePostPassword(
+    const nextBundle = await rewrapPrivatePostPasswordWithKnownPassword(
       mapping.spec.bundle,
-      normalizedPassword,
-      localAuthorKey.privateKey
+      normalizedCurrentPassword,
+      normalizedNextPassword
     )
-    const nextBundleText = JSON.stringify(nextBundle, null, 2)
-    const nextPrivatePost = buildPrivatePostResource({
-      bundle: nextBundle,
-      postName: mapping.spec.postName,
-      existing: mapping,
-    })
-    await persistPrivatePostBundleAnnotation(mapping.spec.postName, nextBundleText)
-    const updatedPrivatePost = await updatePrivatePost(nextPrivatePost)
-    applyOptimisticBundle(mapping.spec.postName, nextBundle)
-    replaceItem(updatedPrivatePost)
+    await persistBundle(mapping, nextBundle)
+    currentPassword.value = ''
     nextPassword.value = ''
-    setPasswordMessage(
-      'success',
-      '访问口令已覆盖。正文密文和作者钥匙槽没有变化，阅读端会立即使用新的 password_slot。'
-    )
+    confirmNextPassword.value = ''
+    setRotateMessage('success', '访问口令已更新。')
   } catch (error) {
-    setPasswordMessage('error', `重设访问口令失败：${toMessage(error)}`)
+    setRotateMessage('error', `修改访问口令失败：${toMessage(error)}`)
   } finally {
-    resettingPassword.value = false
+    rotatingPassword.value = false
   }
+}
+
+async function resetPasswordWithMnemonic() {
+  clearRecoveryMessage()
+
+  const mapping = selectedPostMapping.value
+  const normalizedMnemonic = recoveryMnemonic.value.trim()
+  const normalizedNextPassword = recoveryNextPassword.value.trim()
+  const normalizedConfirmNextPassword = recoveryConfirmNextPassword.value.trim()
+
+  if (!mapping) {
+    setRecoveryMessage('error', '请先选择一篇已加密文章。')
+    return
+  }
+
+  if (!normalizedMnemonic) {
+    setRecoveryMessage('error', '请输入恢复助记词。')
+    return
+  }
+
+  if (!normalizedNextPassword) {
+    setRecoveryMessage('error', '请输入新的访问口令。')
+    return
+  }
+
+  if (!normalizedConfirmNextPassword) {
+    setRecoveryMessage('error', '请再次输入新的访问口令。')
+    return
+  }
+
+  if (normalizedNextPassword !== normalizedConfirmNextPassword) {
+    setRecoveryMessage('error', '两次输入的新访问口令不一致。')
+    return
+  }
+
+  resettingWithMnemonic.value = true
+
+  try {
+    const nextBundle = await rewrapPrivatePostPasswordWithRecoveryPhrase(
+      mapping.spec.bundle,
+      normalizedMnemonic,
+      normalizedNextPassword
+    )
+    await persistBundle(mapping, nextBundle)
+    recoveryMnemonic.value = ''
+    recoveryNextPassword.value = ''
+    recoveryConfirmNextPassword.value = ''
+    setRecoveryMessage('success', '访问口令已重置。')
+  } catch (error) {
+    setRecoveryMessage('error', `使用恢复助记词重置口令失败：${toMessage(error)}`)
+  } finally {
+    resettingWithMnemonic.value = false
+  }
+}
+
+async function persistBundle(mapping: PrivatePost, nextBundle: EncryptedPrivatePostBundle) {
+  const nextBundleText = JSON.stringify(nextBundle, null, 2)
+  const nextPrivatePost = buildPrivatePostResource({
+    bundle: nextBundle,
+    postName: mapping.spec.postName,
+    existing: mapping,
+  })
+  await persistPrivatePostBundleAnnotation(mapping.spec.postName, nextBundleText)
+  const updatedPrivatePost = await updatePrivatePost(nextPrivatePost)
+  applyOptimisticBundle(mapping.spec.postName, nextBundle)
+  replaceItem(updatedPrivatePost)
 }
 
 function applyOptimisticBundle(postName: string, nextBundle: EncryptedPrivatePostBundle) {
@@ -257,20 +347,21 @@ function replaceItem(nextItem: PrivatePost) {
   syncPrivatePostRegistry(items.value)
 }
 
-async function warmupHiddenAuthorKey() {
-  syncLocalAuthorKeyFingerprints()
-
-  try {
-    await ensureDefaultAuthorKey()
-  } catch (error) {
-    console.warn('Failed to warm up hidden author key.', error)
-  } finally {
-    syncLocalAuthorKeyFingerprints()
-  }
+function handleRecoveryStateChanged(nextState: unknown) {
+  localRecoveryReady.value = Boolean(nextState)
 }
 
-function syncLocalAuthorKeyFingerprints() {
-  localAuthorKeys.value = listLocalAuthorKeys()
+async function initializeView() {
+  await refreshItems()
+  await syncSelectionFromRoute()
+}
+
+function syncLocalRecoveryState() {
+  localRecoveryReady.value = hasLocalRecoverySecretState()
+}
+
+function handleStorageChange() {
+  syncLocalRecoveryState()
 }
 
 function formatTimestamp(value?: string) {
@@ -304,86 +395,160 @@ function toMessage(error: unknown) {
 
 <template>
   <section class="private-posts-view">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">Halo Private Posts</p>
-        <h1>重设私密文章口令</h1>
-        <p class="summary">
-          文章端负责加锁，后台只负责一件事：对已加密文章重设或覆盖访问口令。
-        </p>
-      </div>
-      <div class="hero-actions">
-        <button class="hero-button" type="button" :disabled="loading" @click="refreshItems">
-          {{ loading ? '刷新中…' : '刷新列表' }}
-        </button>
-        <button v-if="routePostName" class="hero-button secondary" type="button" @click="clearSelectedPost">
-          清除筛选
-        </button>
-      </div>
-    </header>
-
-    <div class="banner error" v-if="errorMessage">{{ errorMessage }}</div>
-
-    <section class="focus-card">
-      <div class="focus-head">
+    <div class="page-shell">
+      <header class="hero">
         <div>
-          <span class="state-pill" :class="{ active: selectedPostMapping }">
-            {{ selectedPostMapping ? '当前文章可处理' : '当前未选中文章' }}
-          </span>
-          <span v-if="routePostName" class="state-pill subtle">{{ routePostName }}</span>
-        </div>
-        <span class="focus-loading" v-if="loadingSelectedPost">载入中…</span>
-      </div>
-
-      <template v-if="routePostName && (selectedPost || selectedPostMapping)">
-        <h2>{{ selectedArticleTitle || routePostName }}</h2>
-        <p v-if="selectedArticleSlug" class="focus-slug">{{ selectedArticleSlug }}</p>
-        <p class="focus-excerpt" v-if="selectedPost?.excerpt">{{ selectedPost.excerpt }}</p>
-
-        <section class="reset-panel">
-          <div>
-            <h3>重设/覆盖口令</h3>
-            <p class="reset-copy">{{ passwordResetAvailability }}</p>
-          </div>
-
-          <label class="reset-field">
-            <span>新访问口令</span>
-            <input
-              v-model="nextPassword"
-              type="password"
-              class="reset-input"
-              autocomplete="new-password"
-              placeholder="输入新的访问口令"
-            />
-          </label>
-
-          <div class="focus-actions">
-            <button
-              class="action-button"
-              type="button"
-              :disabled="resettingPassword || !canResetPassword"
-              @click="resetPassword"
-            >
-              {{ resettingPassword ? '覆盖中…' : '覆盖访问口令' }}
-            </button>
-            <button class="action-button secondary" type="button" @click="clearSelectedPost">
-              返回列表
-            </button>
-          </div>
-
-          <p v-if="passwordMessage" class="password-message" :data-tone="passwordMessageTone">
-            {{ passwordMessage }}
+          <p class="eyebrow">Halo Private Posts</p>
+          <h1>私密文章口令维护</h1>
+          <p class="summary">
+            正常阅读始终靠访问口令。知道旧口令时可直接修改；忘记旧口令时，可用恢复助记词重置。
           </p>
-        </section>
-      </template>
+        </div>
+        <div class="hero-actions">
+          <button class="hero-button" type="button" :disabled="loading" @click="refreshItems">
+            {{ loading ? '刷新中…' : '刷新列表' }}
+          </button>
+          <button v-if="routePostName" class="hero-button secondary" type="button" @click="clearSelectedPost">
+            清除筛选
+          </button>
+        </div>
+      </header>
 
-      <p v-else class="focus-excerpt">
-        从下方列表选中一篇已加密文章，然后在这里覆盖访问口令。后台不会显示旧口令，也不会暴露作者钥匙。
-      </p>
-    </section>
+      <div class="banner error" v-if="errorMessage">{{ errorMessage }}</div>
 
-    <div class="overview-grid">
-      <section class="overview-card">
+      <section class="focus-card">
+        <div class="focus-head">
+          <div>
+            <span class="state-pill" :class="{ active: selectedPostMapping }">
+              {{ selectedPostMapping ? '当前文章可处理' : '当前未选中文章' }}
+            </span>
+          </div>
+          <span class="focus-loading" v-if="loadingSelectedPost">载入中…</span>
+        </div>
+
+        <template v-if="routePostName && (selectedPost || selectedPostMapping)">
+          <h2>{{ selectedArticleTitle || routePostName }}</h2>
+          <p v-if="selectedArticleSlug" class="focus-slug">{{ selectedArticleSlug }}</p>
+          <p class="focus-excerpt" v-if="selectedPost?.excerpt">{{ selectedPost.excerpt }}</p>
+
+          <div class="focus-panels">
+            <section class="action-panel">
+              <div>
+                <h3>知道旧口令时直接修改</h3>
+                <p class="panel-copy">{{ passwordRotationAvailability }}</p>
+              </div>
+
+              <label class="panel-field">
+                <span>当前访问口令</span>
+                <input
+                  v-model="currentPassword"
+                  type="password"
+                  class="panel-input"
+                  autocomplete="current-password"
+                  placeholder="输入当前访问口令"
+                />
+              </label>
+
+              <label class="panel-field">
+                <span>新的访问口令</span>
+                <input
+                  v-model="nextPassword"
+                  type="password"
+                  class="panel-input"
+                  autocomplete="new-password"
+                  placeholder="输入新的访问口令"
+                />
+              </label>
+
+              <label class="panel-field">
+                <span>确认新的访问口令</span>
+                <input
+                  v-model="confirmNextPassword"
+                  type="password"
+                  class="panel-input"
+                  autocomplete="new-password"
+                  placeholder="再次输入新的访问口令"
+                />
+              </label>
+
+              <div class="focus-actions">
+                <button
+                  class="action-button"
+                  type="button"
+                  :disabled="rotatingPassword || !canRotatePassword"
+                  @click="rotatePasswordWithCurrentPassword"
+                >
+                  {{ rotatingPassword ? '修改中…' : '修改访问口令' }}
+                </button>
+              </div>
+
+              <p v-if="rotateMessage" class="password-message" :data-tone="rotateMessageTone">
+                {{ rotateMessage }}
+              </p>
+            </section>
+
+            <section class="action-panel">
+              <div>
+                <h3>忘记旧口令时用助记词重置</h3>
+                <p class="panel-copy">{{ mnemonicResetAvailability }}</p>
+              </div>
+
+              <label class="panel-field">
+                <span>恢复助记词</span>
+                <textarea
+                  v-model="recoveryMnemonic"
+                  class="panel-textarea"
+                  spellcheck="false"
+                  placeholder="输入 12 个英文单词"
+                />
+              </label>
+
+              <label class="panel-field">
+                <span>新的访问口令</span>
+                <input
+                  v-model="recoveryNextPassword"
+                  type="password"
+                  class="panel-input"
+                  autocomplete="new-password"
+                  placeholder="输入新的访问口令"
+                />
+              </label>
+
+              <label class="panel-field">
+                <span>确认新的访问口令</span>
+                <input
+                  v-model="recoveryConfirmNextPassword"
+                  type="password"
+                  class="panel-input"
+                  autocomplete="new-password"
+                  placeholder="再次输入新的访问口令"
+                />
+              </label>
+
+              <div class="focus-actions">
+                <button
+                  class="action-button"
+                  type="button"
+                  :disabled="resettingWithMnemonic || !canResetWithMnemonic"
+                  @click="resetPasswordWithMnemonic"
+                >
+                  {{ resettingWithMnemonic ? '重置中…' : '使用助记词重置口令' }}
+                </button>
+              </div>
+
+              <p v-if="recoveryMessage" class="password-message" :data-tone="recoveryMessageTone">
+                {{ recoveryMessage }}
+              </p>
+            </section>
+          </div>
+        </template>
+
+        <p v-else class="focus-excerpt">
+          从下方列表选中一篇已加密文章，然后在这里修改或重置访问口令。
+        </p>
+      </section>
+
+      <section class="overview-card overview-card-compact">
         <h2>当前状态</h2>
         <dl class="overview-stats">
           <div>
@@ -394,62 +559,65 @@ function toMessage(error: unknown) {
             <dt>当前筛选结果</dt>
             <dd>{{ displayItems.length }}</dd>
           </div>
+          <div>
+            <dt>恢复助记词</dt>
+            <dd>{{ localRecoveryReady ? '已导入' : '未导入' }}</dd>
+          </div>
         </dl>
       </section>
-    </div>
 
-    <section class="list-card">
-      <div class="card-header">
-        <div>
-          <h2>已加密文章</h2>
-          <p>这里只列出已经由文章设置同步成功的条目。每篇文章在后台只有一个动作：修改口令。</p>
+      <section class="manager-card">
+        <RecoveryMnemonicManager @changed="handleRecoveryStateChanged" />
+      </section>
+
+      <section class="list-card">
+        <div class="card-header">
+          <div>
+            <h2>已加密文章</h2>
+            <p>选中后即可处理口令。</p>
+          </div>
         </div>
-      </div>
 
-      <div class="empty-state" v-if="!loading && displayItems.length === 0">
-        {{ routePostName ? '当前文章还没有同步出私密正文。' : '当前还没有已同步的加密文章。' }}
-      </div>
+        <div class="empty-state" v-if="!loading && displayItems.length === 0">
+          {{ routePostName ? '当前文章还没有同步出私密正文。' : '当前还没有已同步的加密文章。' }}
+        </div>
 
-      <ul class="post-list" v-else>
-        <li
-          v-for="item in displayItems"
-          :key="item.metadata.name"
-          class="post-item"
-          :class="{ focused: item.spec.postName === routePostName }"
-        >
-          <div class="post-item-header">
-            <div>
-              <h3>{{ item.spec.title }}</h3>
-              <p>{{ item.spec.slug }}</p>
+        <ul class="post-list" v-else>
+          <li
+            v-for="item in displayItems"
+            :key="item.metadata.name"
+            class="post-item"
+            :class="{ focused: item.spec.postName === routePostName }"
+          >
+            <div class="post-item-main">
+              <div>
+                <button class="post-link" type="button" @click="selectPost(item.spec.postName)">
+                  {{ item.spec.title }}
+                </button>
+                <p class="post-slug">{{ item.spec.slug }}</p>
+              </div>
+
+              <dl class="post-item-meta">
+                <div>
+                  <dt>发布时间</dt>
+                  <dd>{{ formatTimestamp(item.spec.publishedAt) }}</dd>
+                </div>
+                <div>
+                  <dt>创建时间</dt>
+                  <dd>{{ formatTimestamp(item.metadata.creationTimestamp) }}</dd>
+                </div>
+              </dl>
+
+              <p class="post-item-excerpt">{{ item.spec.excerpt || '无公开摘要' }}</p>
             </div>
-            <span class="pill">{{ item.spec.postName }}</span>
-          </div>
 
-          <dl class="post-item-meta">
-            <div>
-              <dt>发布时间</dt>
-              <dd>{{ formatTimestamp(item.spec.publishedAt) }}</dd>
-            </div>
-            <div>
-              <dt>资源名</dt>
-              <dd>{{ item.metadata.name }}</dd>
-            </div>
-            <div>
-              <dt>创建时间</dt>
-              <dd>{{ formatTimestamp(item.metadata.creationTimestamp) }}</dd>
-            </div>
-          </dl>
-
-          <p class="post-item-excerpt">{{ item.spec.excerpt || '无公开摘要' }}</p>
-
-          <div class="post-item-actions">
-            <button class="action-button" type="button" @click="selectPost(item.spec.postName)">
-              {{ item.spec.postName === routePostName ? '正在修改口令' : '修改口令' }}
-            </button>
-          </div>
-        </li>
-      </ul>
-    </section>
+            <span v-if="item.spec.postName === routePostName" class="post-current">
+              正在处理
+            </span>
+          </li>
+        </ul>
+      </section>
+    </div>
   </section>
 </template>
 
@@ -463,11 +631,16 @@ function toMessage(error: unknown) {
   color: #0f172a;
 }
 
+.page-shell {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
 .hero {
   display: flex;
   justify-content: space-between;
   gap: 20px;
-  padding: 28px 32px;
+  padding: 24px 28px;
   border-radius: 28px;
   background:
     linear-gradient(135deg, rgba(15, 118, 110, 0.96), rgba(21, 94, 117, 0.92)),
@@ -491,7 +664,7 @@ function toMessage(error: unknown) {
 }
 
 .summary {
-  max-width: 760px;
+  max-width: 620px;
   margin: 14px 0 0;
   line-height: 1.65;
   color: rgba(248, 250, 252, 0.86);
@@ -538,10 +711,11 @@ function toMessage(error: unknown) {
 
 .focus-card,
 .overview-card,
+.manager-card,
 .list-card {
   margin-top: 22px;
-  padding: 24px;
-  border-radius: 24px;
+  padding: 20px;
+  border-radius: 22px;
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(148, 163, 184, 0.18);
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
@@ -611,21 +785,11 @@ function toMessage(error: unknown) {
   font-size: 13px;
 }
 
-.overview-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
-  gap: 22px;
-}
-
-.overview-card.muted {
-  background: rgba(248, 250, 252, 0.88);
-}
-
 .overview-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
-  margin: 18px 0 0;
+  margin: 16px 0 0;
 }
 
 .overview-stats dt,
@@ -644,8 +808,12 @@ function toMessage(error: unknown) {
 }
 
 .overview-stats dd {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
+}
+
+.overview-card-compact {
+  background: rgba(248, 250, 252, 0.88);
 }
 
 .card-header {
@@ -665,112 +833,153 @@ function toMessage(error: unknown) {
 }
 
 .post-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  display: grid;
+  gap: 0;
   padding: 0;
   margin: 0;
   list-style: none;
 }
 
 .post-item {
-  padding: 18px;
-  border-radius: 20px;
-  background: #f8fafc;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
 .post-item.focused {
-  border-color: rgba(15, 118, 110, 0.36);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+  background: rgba(15, 118, 110, 0.04);
 }
 
-.post-item-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+.post-item-main {
+  min-width: 0;
 }
 
-.post-item-header h3 {
-  margin: 0;
+.post-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #0f172a;
+  cursor: pointer;
+  font: inherit;
   font-size: 18px;
+  font-weight: 700;
+  text-align: left;
 }
 
-.post-item-header p {
+.post-link:hover,
+.post-link:focus-visible,
+.post-item.focused .post-link {
+  color: #0f766e;
+  text-decoration: underline;
+}
+
+.post-link:focus-visible {
+  outline: none;
+}
+
+.post-slug {
   margin: 6px 0 0;
   color: #475569;
+  word-break: break-all;
+  font-size: 13px;
 }
 
-.pill {
+.post-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 12px 0 10px;
+}
+
+.post-item-meta div {
   display: inline-flex;
-  align-items: center;
-  height: fit-content;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(15, 118, 110, 0.12);
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.post-item-meta dt {
+  margin: 0;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.post-item-meta dd {
+  word-break: break-word;
+}
+
+.post-current {
+  flex-shrink: 0;
+  align-self: flex-start;
   color: #0f766e;
   font-size: 12px;
   font-weight: 700;
 }
 
-.post-item-meta {
+.focus-panels {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin: 16px 0 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 22px;
 }
 
-.post-item-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
-  align-items: center;
-}
-
-.reset-panel {
+.action-panel {
   display: grid;
   gap: 14px;
-  margin-top: 22px;
   padding: 18px;
   border-radius: 20px;
   background: rgba(15, 23, 42, 0.03);
   border: 1px solid rgba(148, 163, 184, 0.18);
+  align-content: start;
 }
 
-.reset-panel h3 {
+.action-panel h3 {
   margin: 0;
   font-size: 18px;
 }
 
-.reset-copy {
+.panel-copy {
   margin: 8px 0 0;
   color: #475569;
   line-height: 1.6;
 }
 
-.reset-field {
+.panel-field {
   display: grid;
   gap: 8px;
 }
 
-.reset-field span {
+.panel-field span {
   font-size: 13px;
   font-weight: 700;
   color: #0f172a;
 }
 
-.reset-input {
+.panel-input,
+.panel-textarea {
   width: 100%;
-  min-height: 46px;
   border: 1px solid rgba(148, 163, 184, 0.4);
   border-radius: 14px;
-  padding: 0 14px;
+  padding: 12px 14px;
   font: inherit;
   color: #0f172a;
   background: #fff;
 }
 
-.reset-input:focus {
+.panel-input {
+  min-height: 46px;
+}
+
+.panel-textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.panel-input:focus,
+.panel-textarea:focus {
   outline: 0;
   border-color: rgba(15, 118, 110, 0.6);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
@@ -785,11 +994,6 @@ function toMessage(error: unknown) {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-}
-
-.action-button.secondary {
-  background: rgba(15, 23, 42, 0.08);
-  color: #0f172a;
 }
 
 .action-button:disabled {
@@ -815,11 +1019,6 @@ function toMessage(error: unknown) {
 }
 
 @media (max-width: 1080px) {
-  .hero,
-  .overview-grid {
-    grid-template-columns: 1fr;
-  }
-
   .hero {
     flex-direction: column;
   }
@@ -838,19 +1037,24 @@ function toMessage(error: unknown) {
   .hero,
   .focus-card,
   .overview-card,
+  .manager-card,
   .list-card {
-    padding: 20px;
-    border-radius: 22px;
+    padding: 18px;
+    border-radius: 20px;
   }
 
   .overview-stats,
-  .post-item-meta {
+  .focus-panels {
     grid-template-columns: 1fr;
   }
 
   .focus-head,
-  .post-item-header {
+  .post-item {
     flex-direction: column;
+  }
+
+  .post-current {
+    align-self: flex-start;
   }
 }
 </style>

@@ -26,6 +26,16 @@ export default definePlugin({
     {
       parentName: 'Root',
       route: {
+        path: '/private-post',
+        redirect: (to) => ({
+          name: 'HaloPrivatePosts',
+          query: to.query,
+        }),
+      },
+    },
+    {
+      parentName: 'Root',
+      route: {
         path: '/private-posts',
         name: 'HaloPrivatePosts',
         component: PrivatePostsView,

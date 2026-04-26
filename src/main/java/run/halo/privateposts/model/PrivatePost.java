@@ -4,7 +4,6 @@ import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
-import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -74,8 +73,9 @@ public class PrivatePost extends AbstractExtension {
         @JsonProperty("password_slot")
         private PasswordSlot passwordSlot;
 
-        @JsonProperty("author_slots")
-        private List<AuthorSlot> authorSlots;
+        @Schema(requiredMode = REQUIRED)
+        @JsonProperty("recovery_slot")
+        private RecoverySlot recoverySlot;
 
         @Schema(requiredMode = REQUIRED)
         private BundleMetadata metadata;
@@ -103,17 +103,25 @@ public class PrivatePost extends AbstractExtension {
     }
 
     @Data
-    public static class AuthorSlot {
+    public static class RecoverySlot {
         @Schema(requiredMode = REQUIRED)
-        @JsonProperty("key_id")
-        private String keyId;
+        private String scheme;
 
         @Schema(requiredMode = REQUIRED)
-        private String algorithm;
+        @JsonProperty("wrap_alg")
+        private String wrapAlg;
+
+        @Schema(requiredMode = REQUIRED)
+        @JsonProperty("wrap_iv")
+        private String wrapIv;
 
         @Schema(requiredMode = REQUIRED)
         @JsonProperty("wrapped_cek")
         private String wrappedCek;
+
+        @Schema(requiredMode = REQUIRED)
+        @JsonProperty("auth_tag")
+        private String authTag;
     }
 
     @Data

@@ -2,19 +2,16 @@ package run.halo.privateposts.cleanup;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import run.halo.app.core.extension.content.Post;
-import run.halo.app.extension.Extension;
 import run.halo.app.extension.ExtensionClient;
 import run.halo.app.extension.ListOptions;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.MetadataOperator;
-import run.halo.privateposts.model.AuthorKey;
-import run.halo.privateposts.model.PrivatePost;
+import run.halo.privateposts.service.PrivatePostService;
 import run.halo.privateposts.sync.PostPrivatePostSyncListener;
 
 @Service
@@ -22,16 +19,20 @@ public class PluginUninstallCleanupService {
     private static final Sort UNSORTED = Sort.unsorted();
 
     private final ExtensionClient client;
+    private final PrivatePostService privatePostService;
 
-    public PluginUninstallCleanupService(ExtensionClient client) {
+    public PluginUninstallCleanupService(ExtensionClient client,
+                                         PrivatePostService privatePostService) {
         this.client = client;
+        this.privatePostService = privatePostService;
     }
 
     public CleanupSummary cleanup() {
         int unlockedPosts = clearPostBundleAnnotations();
-        int deletedPrivatePosts = deleteAll(PrivatePost.class);
-        int deletedAuthorKeys = deleteAll(AuthorKey.class);
-        return new CleanupSummary(unlockedPosts, deletedPrivatePosts, deletedAuthorKeys);
+        int deletedPrivatePosts = privatePostService.deleteAllMappings()
+            .blockOptional()
+            .orElse(0);
+        return new CleanupSummary(unlockedPosts, deletedPrivatePosts);
     }
 
     private int clearPostBundleAnnotations() {
@@ -44,14 +45,6 @@ public class PluginUninstallCleanupService {
             updatedPosts++;
         }
         return updatedPosts;
-    }
-
-    private <E extends Extension> int deleteAll(Class<E> type) {
-        List<E> resources = client.listAll(type, ListOptions.builder().build(), UNSORTED);
-        for (E resource : resources) {
-            client.delete(resource);
-        }
-        return resources.size();
     }
 
     private static boolean removeBundleAnnotation(Post post) {
@@ -98,6 +91,6 @@ public class PluginUninstallCleanupService {
         return source == null ? null : new LinkedHashSet<>(source);
     }
 
-    public record CleanupSummary(int unlockedPosts, int deletedPrivatePosts, int deletedAuthorKeys) {
+    public record CleanupSummary(int unlockedPosts, int deletedPrivatePosts) {
     }
 }

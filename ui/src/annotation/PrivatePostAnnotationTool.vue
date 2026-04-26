@@ -9,8 +9,12 @@ import {
 } from '@/api/posts'
 import type { HaloPostContent, HaloPostSummary } from '@/api/posts'
 import type { BundleMetadata, EncryptedPrivatePostBundle } from '@/types/private-post'
-import { ensureDefaultAuthorKey } from '@/utils/default-author-key'
+import { deriveRecoveryKeyFromState } from '@/utils/recovery-phrase'
 import { encryptPrivatePost, parseBundleJson } from '@/utils/private-post-crypto'
+import {
+  getLocalRecoverySecretState,
+  hasLocalRecoverySecretState,
+} from '@/utils/recovery-secret-store'
 
 type StatusTone = 'neutral' | 'valid' | 'invalid' | 'success'
 
@@ -19,12 +23,13 @@ const props = defineProps<{
 }>()
 
 const password = ref('')
+const confirmPassword = ref('')
 const bundleText = ref('')
 const currentPostName = ref('')
 const actionTone = ref<StatusTone>('neutral')
 const actionMessage = ref('')
 const isWorking = ref(false)
-const defaultAuthorKeyFingerprint = ref('')
+const localRecoveryReady = ref(hasLocalRecoverySecretState())
 
 let bundleField: HTMLInputElement | HTMLTextAreaElement | null = null
 let cleanupBundleListener: (() => void) | null = null
@@ -99,20 +104,12 @@ const statusMessage = computed(() => {
 
   return bundleParseError.value || '当前加密正文无法解析'
 })
-const authorKeyBindingMessage = computed(() => {
-  if (!parsedBundle.value || !defaultAuthorKeyFingerprint.value) {
+const recoveryGateMessage = computed(() => {
+  if (localRecoveryReady.value) {
     return ''
   }
 
-  const boundToCurrentHiddenKey = parsedBundle.value.author_slots.some((slot) => {
-    return slot.key_id === defaultAuthorKeyFingerprint.value
-  })
-
-  if (boundToCurrentHiddenKey) {
-    return ''
-  }
-
-  return '当前文章仍绑定旧隐藏作者钥匙。若要让后台直接覆盖访问口令，请点击“根据当前正文重新加锁”一次。'
+  return '当前浏览器还没有恢复助记词。请先到“私密文章”页面初始化或导入恢复助记词，再生成新的加密正文。'
 })
 
 const lockButtonText = computed(() => {
@@ -125,9 +122,10 @@ const lockButtonText = computed(() => {
 
 onMounted(() => {
   void syncCurrentPostName()
+  syncLocalRecoveryState()
   scheduleDomSync()
   startDomObserver()
-  void warmupDefaultAuthorKey()
+  window.addEventListener('storage', handleStorageChange)
 })
 
 onBeforeUnmount(() => {
@@ -136,6 +134,7 @@ onBeforeUnmount(() => {
   if (domSyncFrame !== null) {
     window.cancelAnimationFrame(domSyncFrame)
   }
+  window.removeEventListener('storage', handleStorageChange)
 })
 
 function bindBundleField(): void {
@@ -291,6 +290,15 @@ function readPassword(): string {
     throw new Error('请先输入访问密码')
   }
 
+  const normalizedConfirmation = confirmPassword.value.trim()
+  if (!normalizedConfirmation) {
+    throw new Error('请再次输入访问密码')
+  }
+
+  if (normalized !== normalizedConfirmation) {
+    throw new Error('两次输入的访问密码不一致')
+  }
+
   return normalized
 }
 
@@ -355,11 +363,16 @@ async function lockCurrentPost(): Promise<void> {
     return
   }
 
+  const localRecoveryState = getLocalRecoverySecretState()
+  if (!localRecoveryState) {
+    setActionMessage('invalid', '当前浏览器还没有恢复助记词，请先到“私密文章”页面初始化或导入。')
+    return
+  }
+
   isWorking.value = true
 
   try {
-    const { recipients, primaryFingerprint } = await ensureDefaultAuthorKey()
-    defaultAuthorKeyFingerprint.value = primaryFingerprint
+    const recoveryKeyBytes = await deriveRecoveryKeyFromState(localRecoveryState)
     const [summary, content] = await Promise.all([
       getHaloPostByName(postName),
       fetchHaloPostHeadContent(postName),
@@ -371,13 +384,15 @@ async function lockCurrentPost(): Promise<void> {
         markdown: readDraftMarkdown(content),
       },
       readPassword(),
-      recipients
+      recoveryKeyBytes
     )
 
     const nextBundleText = JSON.stringify(bundle, null, 2)
     writeBundleToField(nextBundleText)
     await persistPrivatePostBundleAnnotation(postName, nextBundleText)
     currentPostName.value = postName
+    password.value = ''
+    confirmPassword.value = ''
     setActionMessage(
       'success',
       '已基于当前已保存草稿正文加锁，并立即保存到文章设置。后续修改正文后请先保存文章，再重新加锁。'
@@ -537,17 +552,16 @@ function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误'
 }
 
-async function warmupDefaultAuthorKey(): Promise<void> {
-  try {
-    const context = await ensureDefaultAuthorKey()
-    defaultAuthorKeyFingerprint.value = context.primaryFingerprint
-  } catch (error) {
-    console.warn('Failed to initialize default author key.', error)
-  }
-}
-
 async function syncCurrentPostName(): Promise<void> {
   currentPostName.value = await resolveCurrentPostName()
+}
+
+function syncLocalRecoveryState(): void {
+  localRecoveryReady.value = hasLocalRecoverySecretState()
+}
+
+function handleStorageChange(): void {
+  syncLocalRecoveryState()
 }
 </script>
 
@@ -573,8 +587,8 @@ async function syncCurrentPostName(): Promise<void> {
       说明：先保存正文，再点击“根据当前正文加锁”。加锁和取消加锁都会立即保存状态。
     </p>
 
-    <p v-if="authorKeyBindingMessage" class="hpp-annotation-warning">
-      {{ authorKeyBindingMessage }}
+    <p v-if="recoveryGateMessage" class="hpp-annotation-warning">
+      {{ recoveryGateMessage }}
     </p>
 
     <label class="hpp-annotation-field">
@@ -582,9 +596,20 @@ async function syncCurrentPostName(): Promise<void> {
       <input
         v-model="password"
         type="password"
-        autocomplete="current-password"
+        autocomplete="new-password"
         class="hpp-annotation-input"
         placeholder="密码只在当前浏览器里参与加密，不会写入 Halo"
+      />
+    </label>
+
+    <label class="hpp-annotation-field">
+      <span>确认访问密码</span>
+      <input
+        v-model="confirmPassword"
+        type="password"
+        autocomplete="new-password"
+        class="hpp-annotation-input"
+        placeholder="再次输入访问密码"
       />
     </label>
 
@@ -592,7 +617,7 @@ async function syncCurrentPostName(): Promise<void> {
       <button
         type="button"
         class="hpp-annotation-button hpp-annotation-button-primary"
-        :disabled="isWorking"
+        :disabled="isWorking || !localRecoveryReady"
         @click="lockCurrentPost"
       >
         {{ lockButtonText }}

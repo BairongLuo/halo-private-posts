@@ -47,7 +47,7 @@ class PostPrivatePostSyncListenerTest {
             {"version":2,"payload_format":"markdown","cipher":"aes-256-gcm",
             "kdf":"envelope","data_iv":"2233","ciphertext":"4455","auth_tag":"6677",
             "password_slot":{"kdf":"scrypt","salt":"0011","wrap_iv":"8899","wrapped_cek":"aabb","auth_tag":"ccdd"},
-            "author_slots":[],
+            "recovery_slot":{"scheme":"mnemonic-v1","wrap_alg":"aes-256-gcm","wrap_iv":"1122","wrapped_cek":"3344","auth_tag":"5566"},
             "metadata":{"slug":"%s","title":"%s"}}
             """.formatted(slug, title).trim();
     }
