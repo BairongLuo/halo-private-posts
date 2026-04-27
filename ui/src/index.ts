@@ -1,6 +1,7 @@
 import { IconPlug } from '@halo-dev/components'
 import { definePlugin } from '@halo-dev/ui-shared'
 import { markRaw } from 'vue'
+import type { RouteLocationNormalizedLoaded } from 'vue-router'
 
 import { installPrivatePostAnnotationTool } from './annotation/mount'
 import PostPrivateBodyField from './components/PostPrivateBodyField.vue'
@@ -27,7 +28,7 @@ export default definePlugin({
       parentName: 'Root',
       route: {
         path: '/private-post',
-        redirect: (to) => ({
+        redirect: (to: RouteLocationNormalizedLoaded) => ({
           name: 'HaloPrivatePosts',
           query: to.query,
         }),

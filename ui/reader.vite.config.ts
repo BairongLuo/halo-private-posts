@@ -20,7 +20,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         assetFileNames: (assetInfo) =>
-          assetInfo.name === 'style.css' ? 'reader.css' : '[name][extname]',
+          assetInfo.name?.endsWith('.css') ? 'reader.css' : '[name][extname]',
       },
     },
   },

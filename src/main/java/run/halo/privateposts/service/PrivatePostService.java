@@ -1,8 +1,11 @@
 package run.halo.privateposts.service;
 
-import java.util.Map;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
@@ -17,13 +20,14 @@ import run.halo.app.extension.ListOptions;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.MetadataOperator;
 import run.halo.app.extension.ReactiveExtensionClient;
-import run.halo.app.extension.index.query.QueryFactory;
+import run.halo.app.extension.index.query.Queries;
 import run.halo.privateposts.model.PrivatePost;
 import run.halo.privateposts.sync.PostPrivatePostSyncListener;
 
 @Service
 public class PrivatePostService {
     private static final Sort DEFAULT_SORT = Sort.by(Sort.Order.asc("spec.slug"));
+    private static final Sort SOURCE_POST_SORT = Sort.by(Sort.Order.asc("metadata.name"));
     private static final int UPSERT_RETRIES = 2;
     private static final String PRIVATE_POST_STORE_PREFIX = "/registry/privateposts.halo.run/privateposts/";
     private static final Logger log = LoggerFactory.getLogger(PrivatePostService.class);
@@ -39,26 +43,32 @@ public class PrivatePostService {
         return client.listAll(PrivatePost.class, ListOptions.builder().build(), DEFAULT_SORT);
     }
 
+    public Flux<PrivatePost> listPubliclyAccessible() {
+        return listAll().filterWhen(this::isPubliclyAccessible);
+    }
+
     public Mono<PrivatePost> getBySlug(String slug) {
-        return client.listAll(
-                PrivatePost.class,
-                ListOptions.builder()
-                    .fieldQuery(QueryFactory.equal("spec.slug", slug))
-                    .build(),
-                DEFAULT_SORT
-            )
-            .next();
+        return queryByField("spec.slug", slug)
+            .switchIfEmpty(Mono.defer(() -> listAll()
+                .filter(privatePost -> privatePost.getSpec() != null
+                    && slug.equals(privatePost.getSpec().getSlug()))
+                .next()));
+    }
+
+    public Mono<PrivatePost> getPubliclyAccessibleBySlug(String slug) {
+        return getBySlug(slug).filterWhen(this::isPubliclyAccessible);
     }
 
     public Mono<PrivatePost> getByPostName(String postName) {
-        return client.listAll(
-                PrivatePost.class,
-                ListOptions.builder()
-                    .fieldQuery(QueryFactory.equal("spec.postName", postName))
-                    .build(),
-                DEFAULT_SORT
-            )
-            .next();
+        return queryByField("spec.postName", postName)
+            .switchIfEmpty(Mono.defer(() -> listAll()
+                .filter(privatePost -> privatePost.getSpec() != null
+                    && postName.equals(privatePost.getSpec().getPostName()))
+                .next()));
+    }
+
+    public Mono<PrivatePost> getPubliclyAccessibleByPostName(String postName) {
+        return getByPostName(postName).filterWhen(this::isPubliclyAccessible);
     }
 
     public Mono<PrivatePost> upsert(PrivatePost privatePost) {
@@ -101,6 +111,14 @@ public class PrivatePostService {
             .map(Math::toIntExact);
     }
 
+    public Mono<Integer> reconcileMappings() {
+        return client.listAll(Post.class, ListOptions.builder().build(), SOURCE_POST_SORT)
+            .flatMap(this::upsertFromSourcePost)
+            .filter(Boolean::booleanValue)
+            .count()
+            .map(Math::toIntExact);
+    }
+
     private Mono<Boolean> deleteIfStale(PrivatePost privatePost) {
         return shouldRetainMapping(privatePost)
             .flatMap(shouldRetain -> {
@@ -113,11 +131,78 @@ public class PrivatePostService {
             });
     }
 
+    private Mono<Boolean> upsertFromSourcePost(Post post) {
+        if (post == null || post.getMetadata() == null || post.getSpec() == null || post.isDeleted()
+            || Post.isRecycled(post.getMetadata())) {
+            return Mono.just(false);
+        }
+
+        String postName = post.getMetadata().getName();
+        if (!StringUtils.hasText(postName)) {
+            return Mono.just(false);
+        }
+
+        PrivatePost.Bundle bundle = PostPrivatePostSyncListener.readBundleFromAnnotations(
+            postName,
+            post.getMetadata().getAnnotations()
+        );
+        if (bundle == null) {
+            return Mono.just(false);
+        }
+
+        PrivatePost privatePost = new PrivatePost();
+        PrivatePost.PrivatePostSpec spec = new PrivatePost.PrivatePostSpec();
+        spec.setPostName(postName);
+        spec.setSlug(post.getSpec().getSlug());
+        spec.setTitle(post.getSpec().getTitle());
+        spec.setExcerpt(readExcerpt(post));
+        spec.setPublishedAt(readPublishedAt(post.getSpec().getPublishTime()));
+        spec.setBundle(bundle);
+        privatePost.setSpec(spec);
+
+        return upsert(privatePost)
+            .thenReturn(true)
+            .onErrorResume(error -> {
+                log.warn("Failed to reconcile private post mapping for source post {} on startup.",
+                    postName, error);
+                return Mono.just(false);
+            });
+    }
+
     public Mono<Integer> deleteAllMappings() {
         return listAll()
             .flatMap(this::deleteDirectly)
             .count()
             .map(Math::toIntExact);
+    }
+
+    public Mono<DeleteAllMappingsResult> deleteAllMappingsBestEffort() {
+        return listAll()
+            .flatMap(privatePost -> deleteDirectly(privatePost)
+                .thenReturn(DeleteOutcome.deleted(resourceName(privatePost)))
+                .onErrorResume(error -> {
+                    String resourceName = resourceName(privatePost);
+                    log.warn("Failed to delete private post mapping {} during uninstall cleanup.",
+                        resourceName, error);
+                    return Mono.just(DeleteOutcome.failed(resourceName));
+                }))
+            .collectList()
+            .map(outcomes -> {
+                int deletedCount = 0;
+                List<String> failedResourceNames = new ArrayList<>();
+                for (DeleteOutcome outcome : outcomes) {
+                    if (outcome.deleted()) {
+                        deletedCount++;
+                        continue;
+                    }
+                    failedResourceNames.add(outcome.resourceName());
+                }
+                return new DeleteAllMappingsResult(deletedCount, List.copyOf(failedResourceNames));
+            })
+            .onErrorResume(error -> {
+                log.warn("Failed to list private post mappings during uninstall cleanup.", error);
+                return Mono.just(new DeleteAllMappingsResult(0, List.of("<list-private-posts>")));
+            });
     }
 
     private Mono<Boolean> shouldRetainMapping(PrivatePost privatePost) {
@@ -139,7 +224,24 @@ public class PrivatePostService {
             });
     }
 
-    private static boolean isActivePrivatePostSource(Post post) {
+    private Mono<Boolean> isPubliclyAccessible(PrivatePost privatePost) {
+        if (privatePost == null || privatePost.getSpec() == null
+            || !StringUtils.hasText(privatePost.getSpec().getPostName())) {
+            return Mono.just(false);
+        }
+
+        String postName = privatePost.getSpec().getPostName();
+        return client.fetch(Post.class, postName)
+            .map(PrivatePostService::isPubliclyAccessiblePrivatePostSource)
+            .defaultIfEmpty(false)
+            .onErrorResume(error -> {
+                log.warn("Failed to validate public accessibility for private post source {}.", postName,
+                    error);
+                return Mono.just(false);
+            });
+    }
+
+    public static boolean isActivePrivatePostSource(Post post) {
         if (post == null || post.isDeleted() || Post.isRecycled(post.getMetadata())) {
             return false;
         }
@@ -152,6 +254,13 @@ public class PrivatePostService {
 
         String bundleText = annotations.get(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION);
         return StringUtils.hasText(bundleText);
+    }
+
+    static boolean isPubliclyAccessiblePrivatePostSource(Post post) {
+        return isActivePrivatePostSource(post)
+            && post.isPublished()
+            && post.getSpec() != null
+            && Post.isPublic(post.getSpec());
     }
 
     private Mono<Void> deleteDirectly(PrivatePost privatePost) {
@@ -177,6 +286,17 @@ public class PrivatePostService {
 
     private static String storeName(String resourceName) {
         return PRIVATE_POST_STORE_PREFIX + resourceName;
+    }
+
+    private Mono<PrivatePost> queryByField(String fieldName, String value) {
+        return client.listAll(
+                PrivatePost.class,
+                ListOptions.builder()
+                    .fieldQuery(Queries.equal(fieldName, value))
+                    .build(),
+                DEFAULT_SORT
+            )
+            .next();
     }
 
     boolean shouldFallbackToStoreDelete(Throwable error) {
@@ -223,31 +343,46 @@ public class PrivatePostService {
             return cached;
         }
 
-        Field field = findField(client.getClass(), "storeClient");
-        if (field == null) {
-            throw new NoSuchFieldException("storeClient");
-        }
-
-        field.setAccessible(true);
-        Object storeClient = field.get(client);
+        Object storeClient = findStoreDeleteTarget(client);
         if (storeClient == null) {
-            throw new IllegalStateException("ReactiveExtensionClient.storeClient is null");
+            throw new NoSuchFieldException("ReactiveExtensionStoreClient");
         }
 
         reflectedStoreClient = storeClient;
         return storeClient;
     }
 
-    private static Field findField(Class<?> type, String fieldName) {
-        Class<?> current = type;
-        while (current != null) {
-            try {
-                return current.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException ignored) {
-                current = current.getSuperclass();
-            }
+    private static Object findStoreDeleteTarget(Object source) throws ReflectiveOperationException {
+        if (source == null) {
+            return null;
         }
+
+        if (hasDeleteMethod(source.getClass())) {
+            return source;
+        }
+
+        Class<?> current = source.getClass();
+        while (current != null) {
+            for (Field field : current.getDeclaredFields()) {
+                field.setAccessible(true);
+                Object candidate = field.get(source);
+                if (candidate != null && hasDeleteMethod(candidate.getClass())) {
+                    return candidate;
+                }
+            }
+            current = current.getSuperclass();
+        }
+
         return null;
+    }
+
+    private static boolean hasDeleteMethod(Class<?> type) {
+        try {
+            findDeleteMethod(type);
+            return true;
+        } catch (NoSuchMethodException ignored) {
+            return false;
+        }
     }
 
     private static Method findDeleteMethod(Class<?> type) throws NoSuchMethodException {
@@ -292,5 +427,44 @@ public class PrivatePostService {
     private static boolean isRetryableWriteFailure(Throwable error) {
         return error instanceof OptimisticLockingFailureException
             || error instanceof DuplicateKeyException;
+    }
+
+    private static String resourceName(PrivatePost privatePost) {
+        if (privatePost == null || privatePost.getMetadata() == null
+            || !StringUtils.hasText(privatePost.getMetadata().getName())) {
+            return "<unknown>";
+        }
+        return privatePost.getMetadata().getName();
+    }
+
+    private static String readExcerpt(Post post) {
+        if (post.getSpec() != null
+            && post.getSpec().getExcerpt() != null
+            && StringUtils.hasText(post.getSpec().getExcerpt().getRaw())) {
+            return post.getSpec().getExcerpt().getRaw();
+        }
+
+        if (post.getStatus() != null && StringUtils.hasText(post.getStatus().getExcerpt())) {
+            return post.getStatus().getExcerpt();
+        }
+
+        return null;
+    }
+
+    private static String readPublishedAt(Instant publishTime) {
+        return publishTime == null ? null : publishTime.toString();
+    }
+
+    private record DeleteOutcome(boolean deleted, String resourceName) {
+        private static DeleteOutcome deleted(String resourceName) {
+            return new DeleteOutcome(true, resourceName);
+        }
+
+        private static DeleteOutcome failed(String resourceName) {
+            return new DeleteOutcome(false, resourceName);
+        }
+    }
+
+    public record DeleteAllMappingsResult(int deletedCount, List<String> failedResourceNames) {
     }
 }

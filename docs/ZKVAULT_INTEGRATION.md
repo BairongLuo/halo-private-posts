@@ -18,10 +18,15 @@
 当前前端只接受：
 
 - `version = 2`
-- `payload_format = markdown`
+- `payload_format = markdown | html`
 - `cipher = aes-256-gcm`
 - `kdf = envelope`
 - `password_slot.kdf = scrypt`
+
+其中：
+
+- `markdown` 会在阅读端渲染为 HTML
+- `html` 会在阅读端按当前白名单规则做净化后再渲染
 
 ## 私钥与密码边界
 

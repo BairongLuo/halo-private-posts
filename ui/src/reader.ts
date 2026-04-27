@@ -3,7 +3,7 @@ import './reader.css'
 import type { PrivatePostView } from '@/types/private-post'
 import {
   decryptPrivatePost,
-  renderMarkdown,
+  renderPrivatePostDocument,
 } from '@/utils/private-post-crypto'
 
 declare global {
@@ -198,7 +198,7 @@ async function bootReader(element: HTMLElement) {
     try {
       const view = await fetchPrivatePostView(bundleUrl)
       const decrypted = await decryptPrivatePost(view.bundle, password)
-      const renderedHtml = await renderMarkdown(decrypted.markdown)
+      const renderedHtml = await renderPrivatePostDocument(decrypted)
 
       revealContent(
         renderedHtml,

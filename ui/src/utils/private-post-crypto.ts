@@ -1,4 +1,4 @@
-import { marked } from 'marked'
+import { Marked } from 'marked'
 import { scrypt } from 'scrypt-js'
 
 import type {
@@ -6,6 +6,7 @@ import type {
   DecryptedPrivatePostDocument,
   EncryptedPrivatePostBundle,
   PasswordSlot,
+  PrivatePostPayloadFormat,
   RecoverySlot,
 } from '@/types/private-post'
 import {
@@ -27,6 +28,139 @@ const AES_GCM_TAG_BYTES = AES_GCM_TAG_LENGTH / 8
 const BUNDLE_SALT_BYTES = 16
 const BUNDLE_IV_BYTES = 12
 const CONTENT_KEY_BYTES = 32
+const MARKDOWN_RENDERER_BASE_URL = 'https://halo-private-posts.invalid'
+const ALLOWED_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
+const ALLOWED_IMAGE_PROTOCOLS = new Set(['http:', 'https:'])
+const RELATIVE_URL_PATTERN = /^(?:\/(?!\/)|\.{1,2}\/|#|\?)/
+const SUPPORTED_PAYLOAD_FORMATS = new Set<PrivatePostPayloadFormat>(['markdown', 'html'])
+const ALLOWED_LINK_TARGETS = new Set(['_blank', '_self', '_parent', '_top'])
+const BLOCKED_HTML_TAGS = new Set([
+  'applet',
+  'base',
+  'embed',
+  'form',
+  'frame',
+  'frameset',
+  'iframe',
+  'input',
+  'link',
+  'math',
+  'meta',
+  'object',
+  'script',
+  'select',
+  'style',
+  'svg',
+  'template',
+  'textarea',
+])
+const ALLOWED_HTML_TAGS = new Set([
+  'a',
+  'abbr',
+  'article',
+  'aside',
+  'b',
+  'blockquote',
+  'br',
+  'caption',
+  'cite',
+  'code',
+  'dd',
+  'del',
+  'details',
+  'dfn',
+  'div',
+  'dl',
+  'dt',
+  'em',
+  'figcaption',
+  'figure',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hr',
+  'i',
+  'img',
+  'kbd',
+  'li',
+  'mark',
+  'ol',
+  'p',
+  'pre',
+  'q',
+  'rp',
+  'rt',
+  'ruby',
+  's',
+  'samp',
+  'section',
+  'small',
+  'span',
+  'strong',
+  'sub',
+  'summary',
+  'sup',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'tr',
+  'u',
+  'ul',
+  'var',
+])
+const PRESERVED_GLOBAL_HTML_ATTRIBUTES = new Set([
+  'class',
+  'dir',
+  'id',
+  'lang',
+  'role',
+  'title',
+])
+const PRESERVED_HTML_ATTRIBUTES_BY_TAG: Record<string, ReadonlySet<string>> = {
+  a: new Set(['href', 'rel', 'target']),
+  details: new Set(['open']),
+  img: new Set(['alt', 'height', 'loading', 'src', 'width']),
+  li: new Set(['value']),
+  ol: new Set(['reversed', 'start']),
+  td: new Set(['colspan', 'rowspan']),
+  th: new Set(['colspan', 'rowspan', 'scope']),
+}
+const HTML_URL_ATTRIBUTE_PROTOCOLS: Record<string, ReadonlySet<string>> = {
+  href: ALLOWED_LINK_PROTOCOLS,
+  src: ALLOWED_IMAGE_PROTOCOLS,
+}
+
+const safeMarked = new Marked({
+  gfm: true,
+  renderer: {
+    html({ text }) {
+      return escapeHtml(text)
+    },
+    link({ href, title, tokens }) {
+      const textHtml = this.parser.parseInline(tokens)
+      const safeHref = sanitizeUrl(href, ALLOWED_LINK_PROTOCOLS)
+      if (!safeHref) {
+        return textHtml
+      }
+
+      return `<a href="${escapeHtml(safeHref)}"${renderTitleAttribute(title)} rel="nofollow noopener noreferrer">${textHtml}</a>`
+    },
+    image({ href, title, text }) {
+      const safeSrc = sanitizeUrl(href, ALLOWED_IMAGE_PROTOCOLS)
+      if (!safeSrc) {
+        return escapeHtml(text)
+      }
+
+      return `<img src="${escapeHtml(safeSrc)}" alt="${escapeHtml(text)}"${renderTitleAttribute(title)} />`
+    },
+  },
+})
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -71,9 +205,12 @@ function normalizePrivatePostDocument(document: unknown): DecryptedPrivatePostDo
     throw new Error('私密正文内容必须是对象')
   }
 
+  const payloadFormat = normalizePayloadFormat(document.payload_format ?? 'markdown', 'payload.payload_format')
+
   return {
     metadata: normalizeBundleMetadata(document.metadata),
-    markdown: readNonEmptyString(document.markdown, 'payload.markdown'),
+    payload_format: payloadFormat,
+    content: readPrivatePostPayloadContent(document, payloadFormat),
   }
 }
 
@@ -132,10 +269,14 @@ export async function encryptPrivatePost(
     ['encrypt']
   )
   const contentIv = cryptoObject.getRandomValues(new Uint8Array(BUNDLE_IV_BYTES))
+  const payload: Record<string, string> = {
+    content: normalizedDocument.content,
+  }
+  if (normalizedDocument.payload_format === 'markdown') {
+    payload.markdown = normalizedDocument.content
+  }
   const payloadBytes = new TextEncoder().encode(
-    JSON.stringify({
-      markdown: normalizedDocument.markdown,
-    })
+    JSON.stringify(payload)
   )
   const encryptedPayload = new Uint8Array(
     await cryptoApi.encrypt(
@@ -168,7 +309,7 @@ export async function encryptPrivatePost(
 
   return {
     version: BUNDLE_VERSION,
-    payload_format: 'markdown',
+    payload_format: normalizedDocument.payload_format,
     cipher: BUNDLE_CIPHER,
     kdf: BUNDLE_KDF,
     data_iv: bytesToHex(contentIv),
@@ -263,7 +404,19 @@ export async function rewrapPrivatePostPasswordWithRecoveryPhrase(
 }
 
 export async function renderMarkdown(markdown: string): Promise<string> {
-  return await marked.parse(markdown)
+  return safeMarked.parse(markdown, { async: false })
+}
+
+export async function renderPrivatePostDocument(
+  document: DecryptedPrivatePostDocument
+): Promise<string> {
+  const normalizedDocument = normalizePrivatePostDocument(document)
+
+  if (normalizedDocument.payload_format === 'html') {
+    return sanitizeHtmlFragment(normalizedDocument.content)
+  }
+
+  return await renderMarkdown(normalizedDocument.content)
 }
 
 function normalizePasswordSlot(passwordSlot: unknown): PasswordSlot {
@@ -299,9 +452,7 @@ function validateSupportedBundle(bundle: EncryptedPrivatePostBundle): void {
     throw new Error(`只支持 EncryptedPrivatePostBundle v${BUNDLE_VERSION}`)
   }
 
-  if (bundle.payload_format !== 'markdown') {
-    throw new Error('只支持 markdown payload')
-  }
+  normalizePayloadFormat(bundle.payload_format, 'payload_format')
 
   if (bundle.cipher !== BUNDLE_CIPHER || bundle.kdf !== BUNDLE_KDF) {
     throw new Error('当前 bundle 的算法组合不受支持')
@@ -415,9 +566,10 @@ async function decryptDocumentWithContentKey(
   const iv = hexToBytes(bundle.data_iv)
   const ciphertext = hexToBytes(bundle.ciphertext)
   const authTag = hexToBytes(bundle.auth_tag)
+  let plaintextBuffer: ArrayBuffer
 
   try {
-    const plaintextBuffer = await cryptoApi.decrypt(
+    plaintextBuffer = await cryptoApi.decrypt(
       {
         name: 'AES-GCM',
         iv,
@@ -426,15 +578,27 @@ async function decryptDocumentWithContentKey(
       contentKey,
       joinBytes(ciphertext, authTag)
     )
-    const parsed = JSON.parse(new TextDecoder().decode(plaintextBuffer)) as Record<string, unknown>
-    const markdown = readNonEmptyString(parsed.markdown, 'payload.markdown')
-
-    return {
-      metadata: bundle.metadata,
-      markdown,
-    }
   } catch {
     throw new Error('访问密码错误，或密文已损坏')
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(plaintextBuffer))
+  } catch {
+    throw new Error('私密正文内容无法解析')
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error('私密正文内容必须是对象')
+  }
+
+  const payloadFormat = normalizePayloadFormat(bundle.payload_format, 'payload_format')
+
+  return {
+    metadata: bundle.metadata,
+    payload_format: payloadFormat,
+    content: readPrivatePostPayloadContent(parsed, payloadFormat),
   }
 }
 
@@ -588,4 +752,167 @@ function joinBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
 
 function bytesToHex(value: Uint8Array): string {
   return Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function sanitizeUrl(
+  value: string | null | undefined,
+  allowedProtocols: ReadonlySet<string>
+): string | null {
+  if (!value) {
+    return null
+  }
+
+  const normalized = value.trim()
+  if (!normalized) {
+    return null
+  }
+
+  if (RELATIVE_URL_PATTERN.test(normalized)) {
+    return normalized
+  }
+
+  try {
+    const resolved = new URL(normalized, MARKDOWN_RENDERER_BASE_URL)
+    return allowedProtocols.has(resolved.protocol) ? normalized : null
+  } catch {
+    return null
+  }
+}
+
+function renderTitleAttribute(title: string | null | undefined): string {
+  return title ? ` title="${escapeHtml(title)}"` : ''
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function normalizePayloadFormat(
+  value: unknown,
+  fieldName: string
+): PrivatePostPayloadFormat {
+  const normalized = readNonEmptyString(value, fieldName).trim().toLowerCase()
+  if (SUPPORTED_PAYLOAD_FORMATS.has(normalized as PrivatePostPayloadFormat)) {
+    return normalized as PrivatePostPayloadFormat
+  }
+
+  throw new Error(`${fieldName} 暂不支持: ${value}`)
+}
+
+function readPrivatePostPayloadContent(
+  payload: Record<string, unknown>,
+  payloadFormat: PrivatePostPayloadFormat
+): string {
+  if (payloadFormat === 'markdown') {
+    if (typeof payload.content === 'string' && payload.content.trim().length > 0) {
+      return readNonEmptyString(payload.content, 'payload.content')
+    }
+
+    return readNonEmptyString(payload.markdown, 'payload.markdown')
+  }
+
+  return readNonEmptyString(payload.content, 'payload.content')
+}
+
+function sanitizeHtmlFragment(html: string): string {
+  if (typeof DOMParser === 'undefined') {
+    return escapeHtml(html)
+  }
+
+  const document = new DOMParser().parseFromString(html, 'text/html')
+  const elements = Array.from(document.body.querySelectorAll('*'))
+
+  elements.forEach((element) => {
+    if (!element.isConnected) {
+      return
+    }
+
+    const tagName = element.tagName.toLowerCase()
+    if (BLOCKED_HTML_TAGS.has(tagName)) {
+      element.remove()
+      return
+    }
+
+    if (!ALLOWED_HTML_TAGS.has(tagName)) {
+      unwrapHtmlElement(element)
+      return
+    }
+
+    sanitizeHtmlAttributes(element, tagName)
+  })
+
+  return document.body.innerHTML
+}
+
+function unwrapHtmlElement(element: Element): void {
+  const parent = element.parentNode
+  if (!parent) {
+    element.remove()
+    return
+  }
+
+  while (element.firstChild) {
+    parent.insertBefore(element.firstChild, element)
+  }
+
+  element.remove()
+}
+
+function sanitizeHtmlAttributes(element: Element, tagName: string): void {
+  Array.from(element.attributes).forEach((attribute) => {
+    const attributeName = attribute.name.toLowerCase()
+
+    if (
+      attributeName.startsWith('on')
+      || attributeName === 'srcdoc'
+      || attributeName === 'style'
+    ) {
+      element.removeAttribute(attribute.name)
+      return
+    }
+
+    if (attributeName in HTML_URL_ATTRIBUTE_PROTOCOLS) {
+      const safeUrl = sanitizeUrl(
+        attribute.value,
+        HTML_URL_ATTRIBUTE_PROTOCOLS[attributeName]
+      )
+      if (safeUrl) {
+        element.setAttribute(attribute.name, safeUrl)
+      } else {
+        element.removeAttribute(attribute.name)
+      }
+      return
+    }
+
+    if (attributeName === 'target' && tagName === 'a') {
+      const normalizedTarget = attribute.value.trim().toLowerCase()
+      if (!ALLOWED_LINK_TARGETS.has(normalizedTarget)) {
+        element.removeAttribute(attribute.name)
+      }
+      return
+    }
+
+    if (attributeName.startsWith('aria-')) {
+      return
+    }
+
+    const preservedAttributes = PRESERVED_HTML_ATTRIBUTES_BY_TAG[tagName]
+    if (
+      PRESERVED_GLOBAL_HTML_ATTRIBUTES.has(attributeName)
+      || preservedAttributes?.has(attributeName)
+    ) {
+      return
+    }
+
+    element.removeAttribute(attribute.name)
+  })
+
+  if (tagName === 'a' && element.getAttribute('href')) {
+    element.setAttribute('rel', 'nofollow noopener noreferrer')
+  }
 }

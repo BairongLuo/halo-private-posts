@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
@@ -40,9 +41,10 @@ public class PrivatePostPageRouter {
         if (slug.isBlank()) {
             return ServerResponse.notFound().build();
         }
-        return privatePostService.getBySlug(slug)
+        return privatePostService.getPubliclyAccessibleBySlug(slug)
             .map(PrivatePostView::from)
             .flatMap(view -> ServerResponse.ok()
+                .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(view))
             .switchIfEmpty(ServerResponse.notFound().build());
@@ -53,7 +55,7 @@ public class PrivatePostPageRouter {
         if (slug.isBlank()) {
             return ServerResponse.notFound().build();
         }
-        return privatePostService.getBySlug(slug)
+        return privatePostService.getPubliclyAccessibleBySlug(slug)
             .flatMap(privatePost -> renderTemplate(request, privatePost))
             .switchIfEmpty(ServerResponse.notFound().build());
     }
@@ -74,7 +76,9 @@ public class PrivatePostPageRouter {
                 request.exchange(),
                 "private-post"
             )
-            .flatMap(templateName -> ServerResponse.ok().render(templateName, model));
+            .flatMap(templateName -> ServerResponse.ok()
+                .cacheControl(CacheControl.noStore())
+                .render(templateName, model));
     }
 
     private static String nullToEmpty(String value) {

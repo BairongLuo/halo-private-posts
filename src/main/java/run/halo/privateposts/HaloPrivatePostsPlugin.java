@@ -1,16 +1,15 @@
 package run.halo.privateposts;
 
-import static run.halo.app.extension.index.IndexAttributeFactory.simpleAttribute;
-
 import java.util.Optional;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import run.halo.app.extension.ExtensionClient;
 import run.halo.app.extension.Scheme;
 import run.halo.app.extension.SchemeManager;
-import run.halo.app.extension.index.IndexSpec;
+import run.halo.app.extension.index.IndexSpecs;
 import run.halo.app.plugin.BasePlugin;
 import run.halo.app.plugin.PluginContext;
 import run.halo.privateposts.cleanup.PluginUninstallCleanupService;
@@ -26,11 +25,25 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
     private final PluginUninstallCleanupService cleanupService;
     private final PrivatePostService privatePostService;
 
+    @Autowired
     public HaloPrivatePostsPlugin(PluginContext pluginContext,
                                   SchemeManager schemeManager,
                                   ExtensionClient extensionClient,
-                                  PluginUninstallCleanupService cleanupService,
                                   PrivatePostService privatePostService) {
+        this(
+            pluginContext,
+            schemeManager,
+            extensionClient,
+            new PluginUninstallCleanupService(extensionClient, privatePostService),
+            privatePostService
+        );
+    }
+
+    HaloPrivatePostsPlugin(PluginContext pluginContext,
+                           SchemeManager schemeManager,
+                           ExtensionClient extensionClient,
+                           PluginUninstallCleanupService cleanupService,
+                           PrivatePostService privatePostService) {
         super(pluginContext);
         this.schemeManager = schemeManager;
         this.extensionClient = extensionClient;
@@ -41,30 +54,33 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
     @Override
     public void start() {
         schemeManager.register(PrivatePost.class, indexSpecs -> {
-            indexSpecs.add(new IndexSpec()
-                .setName("spec.slug")
-                .setUnique(true)
-                .setIndexFunc(simpleAttribute(PrivatePost.class,
-                    privatePost -> specValue(privatePost, PrivatePost.PrivatePostSpec::getSlug))));
-            indexSpecs.add(new IndexSpec()
-                .setName("spec.postName")
-                .setUnique(true)
-                .setIndexFunc(simpleAttribute(PrivatePost.class,
-                    privatePost -> specValue(privatePost, PrivatePost.PrivatePostSpec::getPostName))));
-            indexSpecs.add(new IndexSpec()
-                .setName("spec.publishedAt")
-                .setIndexFunc(simpleAttribute(PrivatePost.class,
-                    privatePost -> specValue(privatePost,
-                        PrivatePost.PrivatePostSpec::getPublishedAt))));
+            indexSpecs.add(IndexSpecs.<PrivatePost, String>single("spec.slug", String.class)
+                .unique(true)
+                .indexFunc(privatePost -> specValue(privatePost,
+                    PrivatePost.PrivatePostSpec::getSlug)));
+            indexSpecs.add(IndexSpecs.<PrivatePost, String>single("spec.postName", String.class)
+                .unique(true)
+                .indexFunc(privatePost -> specValue(privatePost,
+                    PrivatePost.PrivatePostSpec::getPostName)));
+            indexSpecs.add(IndexSpecs.<PrivatePost, String>single("spec.publishedAt", String.class)
+                .indexFunc(privatePost -> specValue(privatePost,
+                    PrivatePost.PrivatePostSpec::getPublishedAt)));
         });
 
         privatePostService.cleanupStaleMappings()
-            .doOnNext(deletedCount -> {
-                if (deletedCount > 0) {
-                    log.info("Removed {} stale private post mappings on plugin startup.", deletedCount);
+            .flatMap(deletedCount -> privatePostService.reconcileMappings()
+                .map(reconciledCount -> new StartupSummary(deletedCount, reconciledCount)))
+            .doOnNext(summary -> {
+                if (summary.deletedMappings() > 0 || summary.reconciledMappings() > 0) {
+                    log.info(
+                        "Plugin startup reconciliation removed {} stale private post mappings and"
+                            + " rebuilt {} mappings.",
+                        summary.deletedMappings(),
+                        summary.reconciledMappings()
+                    );
                 }
             })
-            .doOnError(error -> log.warn("Failed to cleanup stale private post mappings on startup.", error))
+            .doOnError(error -> log.warn("Failed private post startup reconciliation.", error))
             .subscribe();
     }
 
@@ -91,12 +107,25 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
             }
 
             PluginUninstallCleanupService.CleanupSummary summary = cleanupService.cleanup();
-            log.info(
-                "Completed uninstall cleanup for plugin {}. Unlocked {} posts, deleted {} private posts.",
-                getContext().getName(),
-                summary.unlockedPosts(),
-                summary.deletedPrivatePosts()
-            );
+            if (summary.hasFailures()) {
+                log.warn(
+                    "Completed uninstall cleanup for plugin {} with failures. Unlocked {} posts,"
+                        + " deleted {} private posts, failed posts {}, failed private posts {}.",
+                    getContext().getName(),
+                    summary.unlockedPosts(),
+                    summary.deletedPrivatePosts(),
+                    summary.failedPostNames(),
+                    summary.failedPrivatePostNames()
+                );
+            } else {
+                log.info(
+                    "Completed uninstall cleanup for plugin {}. Unlocked {} posts, deleted {}"
+                        + " private posts.",
+                    getContext().getName(),
+                    summary.unlockedPosts(),
+                    summary.deletedPrivatePosts()
+                );
+            }
         } catch (Exception error) {
             log.warn("Failed uninstall cleanup for plugin {} during stop().", getContext().getName(), error);
         }
@@ -108,5 +137,8 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
             return null;
         }
         return extractor.apply(privatePost.getSpec());
+    }
+
+    private record StartupSummary(int deletedMappings, int reconciledMappings) {
     }
 }

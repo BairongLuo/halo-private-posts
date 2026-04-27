@@ -47,6 +47,7 @@ export interface Metadata {
   name: string
   version?: number
   creationTimestamp?: string
+  deletionTimestamp?: string
 }
 
 export interface PrivatePost {
@@ -73,7 +74,10 @@ export interface PrivatePostView {
   bundle: EncryptedPrivatePostBundle
 }
 
+export type PrivatePostPayloadFormat = 'markdown' | 'html'
+
 export interface DecryptedPrivatePostDocument {
   metadata: BundleMetadata
-  markdown: string
+  payload_format: PrivatePostPayloadFormat
+  content: string
 }

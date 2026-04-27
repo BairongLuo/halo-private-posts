@@ -5,8 +5,10 @@
 ## 先记住这些约束
 
 - 当前只支持 `EncryptedPrivatePostBundle v2`。
+- 当前正文 payload 只支持 `markdown` 和 `html` 两种格式。
 - bundle 的真源是 `Post.metadata.annotations["privateposts.halo.run/bundle"]`。
 - `PrivatePost` 只能反映文章状态，不能再变回单独的正文编辑入口。
+- `PrivatePost.metadata.name` 统一等于 `spec.postName`。
 - 阅读端公开交互只保留密码解锁，不再暴露恢复助记词入口。
 - 服务端不保存访问口令，也不保存恢复助记词。
 - 当前的恢复模型是“当前浏览器持有一份本地恢复状态，对应一组只显示一次的恢复助记词”。
@@ -14,7 +16,12 @@
 
 ## 主要入口
 
-`ui/src/annotation/PrivatePostAnnotationTool.vue` 是文章设置里的加锁入口。现在的加锁动作就是在这里读取当前文章正文、生成 `v2 bundle`、写回文章注解，并同时写入 `password_slot` 和 `recovery_slot`。
+`ui/src/annotation/PrivatePostAnnotationTool.vue` 是文章设置里的加锁入口。现在的加锁动作就是在这里读取当前文章已保存的 Markdown 或 HTML 正文、生成 `v2 bundle`、写回文章注解，并同时写入 `password_slot` 和 `recovery_slot`。
+
+当前顺序要记准：
+
+- 加锁：先持久化 bundle 注解，再按 `postName` upsert `PrivatePost`；如果镜像写入失败，会把注解回滚到旧值
+- 取消加锁：先移除 bundle 注解，再按 `postName` 最佳努力补删所有 `PrivatePost`；`404` 视为已清理，不应该再冒泡成英文全局错误弹窗
 
 `src/main/java/run/halo/privateposts/sync/PostPrivatePostSyncListener.java` 负责把文章注解同步成 `PrivatePost`。文章保存、发布、删除后，这里会决定创建、更新还是删除镜像数据，所以只要出现“设置里看着生效，实际文章没生效”这类问题，通常先看这里。
 
@@ -32,6 +39,12 @@
 - 事件清理：文章更新、发布、取消发布、可见性变化、删除时即时同步
 - 启动清理：插件启动时补扫历史残留，避免旧脏数据一直出现在控制台
 
+还要注意 Halo 扩展资源的软删除语义。删除 `PrivatePost` 后，资源可能先残留为带 `deletionTimestamp` 的软删除项。当前实现已经做了三件事：
+
+- 列表和按 `postName` 查找默认忽略软删除项，避免它们污染后台状态和再次加锁逻辑
+- 再次加锁前会先清理同 `postName` 下的软删除残留，再做创建或更新
+- 取消加锁和后台清理都会对同一资源名连续尝试两次删除，尽量把软删除推进到真正移除
+
 有一类历史数据要特别注意：旧版本 `PrivatePost` 结构可能和当前 schema 不一致，Halo 在 `client.delete(...)` 前会先做 schema 校验，导致正常删除直接失败。当前实现会先尝试正常删除；如果命中这类校验异常，再降级到 extension store 级别删除，避免“文章已经删了，但后台列表还留着”的长期残留。
 
 如果后台“已加密文章”里仍然出现幽灵记录，排查顺序建议固定为：
@@ -47,6 +60,8 @@
 - `ui/src/reader.ts`
 
 前两者负责把 reader 资源挂到主题页面里，并在正文区域输出锁定态；真正的浏览器端解锁、自动重锁和渲染在 `ui/src/reader.ts`。
+
+阅读页和匿名 JSON 接口都显式返回 `Cache-Control: no-store`，reader 端拉 bundle 时也会使用 `cache: "no-store"`，避免取消加锁或重新加锁后还读到旧缓存。
 
 后台的口令维护在 `ui/src/views/PrivatePostsView.vue`。这里不会回显旧口令，也不会重新加密正文本体，而是支持两条路：知道旧口令时直接解开 `password_slot` 后重写；忘记旧口令时依赖当前输入的恢复助记词解开 `recovery_slot` 后重写。最后再把 bundle 同步回文章注解和 `PrivatePost`。
 
@@ -102,4 +117,4 @@ npm run test:unit
 
 ## 当前判断
 
-这套实现的主链路已经能用，但仓库状态更适合按自用 beta / RC 看待。对外发布前，最好还是继续用真实 Halo 环境做回归，尤其是主题接管、文章保存链路和插件删除收尾这几块。
+这套实现的主链路已经能用，最近也补过真实 Halo 环境下的构建、热重载和公开可见性回归。对外发布前，剩余重点更偏向主题兼容、安装说明和更大范围的版本回归，而不是主链路功能缺口。

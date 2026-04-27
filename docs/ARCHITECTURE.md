@@ -30,7 +30,7 @@
 - Halo 原生文章编辑页中的私密正文工具
 - 恢复助记词初始化与导入
 - 后台修改或重置访问口令
-- 锁定态 UI、解锁动作流和 Markdown 渲染
+- 锁定态 UI、解锁动作流，以及 Markdown/HTML 渲染与净化
 - 页面隐藏、离开和空闲超时重锁
 
 ### 浏览器密码学层
@@ -62,6 +62,12 @@
 - 按 `slug` 匿名查询
 - 给主题和 reader 提供统一读取入口
 - 冗余公开元数据，减少匿名阅读路径对原 `Post` 的依赖
+
+当前还约定：
+
+- `metadata.name = spec.postName`
+- `Post.metadata.annotations["privateposts.halo.run/bundle"]` 才是正文 bundle 真源
+- 软删除中的 `PrivatePost` 只作为待清理残留存在，不参与正常读取与列表状态
 
 ### 浏览器本地恢复状态
 
@@ -103,23 +109,39 @@
 ### 文章加锁流
 
 1. 作者在文章设置中输入访问密码
-2. 插件读取当前文章已保存的 Markdown 正文
+2. 插件读取当前文章已保存的 Markdown 或 HTML 正文
 3. 浏览器生成随机 `CEK`
 4. 用 `CEK` 加密正文
 5. 用密码生成 `password_slot`
 6. 用当前浏览器里的恢复状态派生恢复密钥并生成 `recovery_slot`
-7. bundle 写回文章注解
-8. 文章保存事件触发同步，生成或更新 `PrivatePost`
+7. bundle 先立即写回文章注解
+8. 前端再按 `postName` upsert `PrivatePost`
+9. 若镜像写入失败，则回滚文章注解，避免前端状态和实际状态分叉
+10. 文章后续保存事件和插件启动补扫会继续做镜像对账
 
 ### 密码阅读流
 
 1. 主题渲染原文章页
-2. `ReactivePostContentHandler` 按 `postName` 查找 `PrivatePost`
+2. `InlinePrivatePostContentHandler` 通过 `ReactivePostContentHandler` 链路按 `postName` 查找 `PrivatePost`
 3. 若存在私密正文，则正文区域替换为锁定态
-4. reader 请求 `/private-posts/data?slug=...`
+4. reader 以 `no-store` 方式请求 `/private-posts/data?slug=...`
 5. 浏览器用密码解开 `password_slot`
 6. 取回 `CEK` 后解正文
-7. 渲染 Markdown，并在空闲/离开/切后台后重锁
+7. 渲染 Markdown 或经过白名单净化后的 HTML，并在空闲/离开/切后台后重锁
+
+### 取消加锁与镜像清理流
+
+1. 作者在文章设置中点击取消加锁
+2. 前端先移除文章注解 `privateposts.halo.run/bundle`
+3. 前端再按 `postName` 查找并最佳努力删除所有对应 `PrivatePost`
+4. 如果删除返回 `404`，按“已清理”处理，不再透传英文原始错误
+5. 若仍有软删除残留，后续文章事件和插件启动补扫会继续完成清理
+
+### 启动补扫与再次加锁流
+
+1. 插件启动先清理失效镜像，再按现存源文章补重建缺失镜像
+2. 前端再次加锁前，会先过滤并清理同 `postName` 下带 `deletionTimestamp` 的软删除残留
+3. 创建或更新镜像时如遇 `404/409` 竞争写入错误，会自动重试一次
 
 ### 已知旧口令修改流
 

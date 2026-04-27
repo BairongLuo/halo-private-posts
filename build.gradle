@@ -6,14 +6,20 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '0.7.8'
+version = '0.8.4'
+
+def haloPlatformVersion = '2.22.0'
+def haloRuntimeVersion = '2.24.1'
+def uiNodeVersion = '20.19.0'
+def uiNpmVersion = '10.8.2'
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    implementation platform('run.halo.tools.platform:plugin:2.21.0')
+    // 2.24.x plugin BOM is not published to Maven Central yet.
+    implementation platform("run.halo.tools.platform:plugin:${haloPlatformVersion}")
     compileOnly 'run.halo.app:api'
 
     testImplementation 'run.halo.app:api'
@@ -37,7 +43,9 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 node {
-    download = false
+    version = uiNodeVersion
+    npmVersion = uiNpmVersion
+    download = true
     nodeProjectDir = file("${project.projectDir}/ui")
 }
 
@@ -48,6 +56,16 @@ tasks.register('buildConsoleUi', NpmTask) {
 
 tasks.register('buildReaderUi', NpmTask) {
     args = ['run', 'build:reader']
+    dependsOn tasks.named('npmInstall')
+}
+
+tasks.register('typeCheckUi', NpmTask) {
+    args = ['run', 'type-check']
+    dependsOn tasks.named('npmInstall')
+}
+
+tasks.register('testUi', NpmTask) {
+    args = ['run', 'test:unit']
     dependsOn tasks.named('npmInstall')
 }
 
@@ -70,6 +88,11 @@ tasks.named('classes') {
     dependsOn tasks.named('processReaderUiResources')
 }
 
+tasks.named('check') {
+    dependsOn tasks.named('typeCheckUi')
+    dependsOn tasks.named('testUi')
+}
+
 tasks.named('jar') {
     manifest {
         attributes(
@@ -81,11 +104,54 @@ tasks.named('jar') {
 def haloExternalUrl = providers.gradleProperty('haloExternalUrl').orElse('http://localhost:8090')
 def haloSuperAdminUsername = providers.gradleProperty('haloSuperAdminUsername').orElse('admin')
 def haloSuperAdminPassword = providers.gradleProperty('haloSuperAdminPassword').orElse('Admin12345!')
+def haloContainerName = providers.gradleProperty('haloContainerName')
+    .orElse('halo-for-plugin-development')
 
 halo {
-    version = '2.24.1'
+    version = haloRuntimeVersion
     debug = true
+    containerName = haloContainerName.get()
     externalUrl = haloExternalUrl.get()
     superAdminUsername = haloSuperAdminUsername.get()
     superAdminPassword = haloSuperAdminPassword.get()
+}
+
+tasks.register('syncHaloDevPluginManifest') {
+    dependsOn tasks.named('processResources')
+
+    doLast {
+        def manifestSource = layout.buildDirectory.file('resources/main/plugin.yaml').get()
+            .asFile.absolutePath
+        def manifestTarget = "${haloContainerName.get()}:/data/plugins/${rootProject.name}/plugin.yaml"
+
+        // Halo reload resolves /data/plugins/<plugin>/plugin.yaml directly, so copy the
+        // freshly generated manifest from the host instead of depending on the bind mount
+        // still pointing at the current build/ directory after clean.
+        def manifestCopy = new ProcessBuilder('docker', 'cp', manifestSource, manifestTarget)
+            .inheritIO()
+            .start()
+        if (manifestCopy.waitFor() != 0) {
+            throw new GradleException("Failed to copy plugin.yaml into Halo dev container.")
+        }
+
+        def buildMountCheck = new ProcessBuilder(
+            'docker',
+            'exec',
+            haloContainerName.get(),
+            'test',
+            '-f',
+            "/data/plugins/${rootProject.name}/build/resources/main/plugin.yaml"
+        ).start()
+        if (buildMountCheck.waitFor() != 0) {
+            throw new GradleException(
+                "Halo dev container build mount is stale. Recreate the container with "
+                    + "`docker rm -f ${haloContainerName.get()}`, `./gradlew createHaloContainer`, "
+                    + "and `docker start ${haloContainerName.get()}` before rerunning reloadPlugin."
+            )
+        }
+    }
+}
+
+tasks.matching({ it.name == 'reloadPlugin' }).configureEach {
+    dependsOn tasks.named('syncHaloDevPluginManifest')
 }

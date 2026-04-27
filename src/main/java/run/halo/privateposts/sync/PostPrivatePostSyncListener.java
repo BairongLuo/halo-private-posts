@@ -112,8 +112,8 @@ public class PostPrivatePostSyncListener {
     }
 
     @Nullable
-    static PrivatePost.Bundle readBundleFromAnnotations(String postName,
-                                                        @Nullable Map<String, String> annotations) {
+    public static PrivatePost.Bundle readBundleFromAnnotations(String postName,
+                                                               @Nullable Map<String, String> annotations) {
         if (annotations == null) {
             return null;
         }

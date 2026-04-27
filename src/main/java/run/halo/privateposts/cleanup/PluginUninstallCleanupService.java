@@ -1,11 +1,15 @@
 package run.halo.privateposts.cleanup;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
-import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import run.halo.app.core.extension.content.Post;
 import run.halo.app.extension.ExtensionClient;
 import run.halo.app.extension.ListOptions;
@@ -14,9 +18,9 @@ import run.halo.app.extension.MetadataOperator;
 import run.halo.privateposts.service.PrivatePostService;
 import run.halo.privateposts.sync.PostPrivatePostSyncListener;
 
-@Service
 public class PluginUninstallCleanupService {
     private static final Sort UNSORTED = Sort.unsorted();
+    private static final Logger log = LoggerFactory.getLogger(PluginUninstallCleanupService.class);
 
     private final ExtensionClient client;
     private final PrivatePostService privatePostService;
@@ -28,23 +32,46 @@ public class PluginUninstallCleanupService {
     }
 
     public CleanupSummary cleanup() {
-        int unlockedPosts = clearPostBundleAnnotations();
-        int deletedPrivatePosts = privatePostService.deleteAllMappings()
+        PostAnnotationCleanupResult postCleanup = clearPostBundleAnnotations();
+        PrivatePostService.DeleteAllMappingsResult mappingCleanup = privatePostService
+            .deleteAllMappingsBestEffort()
             .blockOptional()
-            .orElse(0);
-        return new CleanupSummary(unlockedPosts, deletedPrivatePosts);
+            .orElseGet(() -> new PrivatePostService.DeleteAllMappingsResult(
+                0,
+                List.of("<delete-private-posts>")
+            ));
+        return new CleanupSummary(
+            postCleanup.unlockedPosts(),
+            mappingCleanup.deletedCount(),
+            postCleanup.failedPostNames(),
+            mappingCleanup.failedResourceNames()
+        );
     }
 
-    private int clearPostBundleAnnotations() {
+    private PostAnnotationCleanupResult clearPostBundleAnnotations() {
         int updatedPosts = 0;
-        for (Post post : client.listAll(Post.class, ListOptions.builder().build(), UNSORTED)) {
-            if (!removeBundleAnnotation(post)) {
-                continue;
+        List<String> failedPostNames = new ArrayList<>();
+        try {
+            for (Post post : client.listAll(Post.class, ListOptions.builder().build(), UNSORTED)) {
+                if (!removeBundleAnnotation(post)) {
+                    continue;
+                }
+
+                try {
+                    client.update(post);
+                    updatedPosts++;
+                } catch (Exception error) {
+                    String postName = postName(post);
+                    failedPostNames.add(postName);
+                    log.warn("Failed to remove private post bundle annotation from {} during uninstall cleanup.",
+                        postName, error);
+                }
             }
-            client.update(post);
-            updatedPosts++;
+        } catch (Exception error) {
+            failedPostNames.add("<list-posts>");
+            log.warn("Failed to list posts during uninstall cleanup.", error);
         }
-        return updatedPosts;
+        return new PostAnnotationCleanupResult(updatedPosts, List.copyOf(failedPostNames));
     }
 
     private static boolean removeBundleAnnotation(Post post) {
@@ -91,6 +118,23 @@ public class PluginUninstallCleanupService {
         return source == null ? null : new LinkedHashSet<>(source);
     }
 
-    public record CleanupSummary(int unlockedPosts, int deletedPrivatePosts) {
+    private static String postName(Post post) {
+        if (post == null || post.getMetadata() == null
+            || !StringUtils.hasText(post.getMetadata().getName())) {
+            return "<unknown-post>";
+        }
+        return post.getMetadata().getName();
+    }
+
+    private record PostAnnotationCleanupResult(int unlockedPosts, List<String> failedPostNames) {
+    }
+
+    public record CleanupSummary(int unlockedPosts,
+                                 int deletedPrivatePosts,
+                                 List<String> failedPostNames,
+                                 List<String> failedPrivatePostNames) {
+        public boolean hasFailures() {
+            return !failedPostNames.isEmpty() || !failedPrivatePostNames.isEmpty();
+        }
     }
 }

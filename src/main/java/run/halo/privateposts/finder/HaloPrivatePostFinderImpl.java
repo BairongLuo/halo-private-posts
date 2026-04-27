@@ -18,16 +18,17 @@ public class HaloPrivatePostFinderImpl implements HaloPrivatePostFinder {
 
     @Override
     public Mono<PrivatePostView> getBySlug(String slug) {
-        return privatePostService.getBySlug(slug).map(PrivatePostView::from);
+        return privatePostService.getPubliclyAccessibleBySlug(slug).map(PrivatePostView::from);
     }
 
     @Override
     public Mono<PrivatePostView> getByPostName(String postName) {
-        return privatePostService.getByPostName(postName).map(PrivatePostView::from);
+        return privatePostService.getPubliclyAccessibleByPostName(postName)
+            .map(PrivatePostView::from);
     }
 
     @Override
     public Flux<PrivatePostView> listAll() {
-        return privatePostService.listAll().map(PrivatePostView::from);
+        return privatePostService.listPubliclyAccessible().map(PrivatePostView::from);
     }
 }

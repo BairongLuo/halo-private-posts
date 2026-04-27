@@ -27,7 +27,7 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
     @Override
     public Mono<PostContentContext> handle(@NonNull PostContentContext postContent) {
         Post post = postContent.getPost();
-        if (post == null || post.getMetadata() == null) {
+        if (!PrivatePostService.isActivePrivatePostSource(post) || post.getMetadata() == null) {
             return Mono.just(postContent);
         }
 

@@ -17,6 +17,11 @@ export interface HaloPostContent {
   rawType?: string
 }
 
+export interface HaloPostLockState {
+  active: boolean
+  hasPrivateBundle: boolean
+}
+
 const PRIVATE_POST_BUNDLE_ANNOTATION = 'privateposts.halo.run/bundle'
 const PRIVATE_POST_BUNDLE_ANNOTATION_PATH = '/metadata/annotations/privateposts.halo.run~1bundle'
 const POST_DELETED_LABEL = 'content.halo.run/deleted'
@@ -38,15 +43,30 @@ export async function getHaloPostByName(name: string): Promise<HaloPostSummary> 
 }
 
 export async function isHaloPostActive(name: string): Promise<boolean> {
+  return (await getHaloPostLockState(name)).active
+}
+
+export async function getHaloPostLockState(name: string): Promise<HaloPostLockState> {
   try {
     const { data: post } = await coreApiClient.content.post.getPost({ name })
-    return !(
+    const active = !(
       post.spec.deleted
       || post.metadata.deletionTimestamp
       || post.metadata.labels?.[POST_DELETED_LABEL] === 'true'
     )
+    const hasPrivateBundle = Boolean(
+      post.metadata.annotations?.[PRIVATE_POST_BUNDLE_ANNOTATION]?.trim()
+    )
+
+    return {
+      active,
+      hasPrivateBundle,
+    }
   } catch {
-    return false
+    return {
+      active: false,
+      hasPrivateBundle: false,
+    }
   }
 }
 

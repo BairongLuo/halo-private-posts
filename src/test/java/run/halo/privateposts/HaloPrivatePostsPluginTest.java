@@ -24,7 +24,7 @@ class HaloPrivatePostsPluginTest {
         PrivatePostService privatePostService = mock(PrivatePostService.class);
         when(privatePostService.cleanupStaleMappings()).thenReturn(Mono.just(0));
         HaloPrivatePostsPlugin plugin = new HaloPrivatePostsPlugin(
-            new PluginContext("halo-private-posts", "config", "0.7.4", null),
+            new PluginContext("halo-private-posts", "config", "0.8.4", null),
             mock(SchemeManager.class),
             extensionClient,
             cleanupService,
@@ -50,7 +50,7 @@ class HaloPrivatePostsPluginTest {
         PrivatePostService privatePostService = mock(PrivatePostService.class);
         when(privatePostService.cleanupStaleMappings()).thenReturn(Mono.just(0));
         HaloPrivatePostsPlugin plugin = new HaloPrivatePostsPlugin(
-            new PluginContext("halo-private-posts", "config", "0.7.4", null),
+            new PluginContext("halo-private-posts", "config", "0.8.4", null),
             mock(SchemeManager.class),
             extensionClient,
             cleanupService,
@@ -65,7 +65,12 @@ class HaloPrivatePostsPluginTest {
         when(extensionClient.fetch(run.halo.app.core.extension.Plugin.class, "halo-private-posts"))
             .thenReturn(Optional.of(pluginResource));
         when(cleanupService.cleanup())
-            .thenReturn(new PluginUninstallCleanupService.CleanupSummary(1, 2));
+            .thenReturn(new PluginUninstallCleanupService.CleanupSummary(
+                1,
+                2,
+                java.util.List.of(),
+                java.util.List.of()
+            ));
 
         plugin.cleanupOnUninstallIfNeeded();
 

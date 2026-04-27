@@ -7,8 +7,16 @@ import {
   listHaloPosts,
   persistPrivatePostBundleAnnotation,
 } from '@/api/posts'
+import {
+  deletePrivatePostByPostName,
+  upsertPrivatePostByPostName,
+} from '@/api/private-posts'
 import type { HaloPostContent, HaloPostSummary } from '@/api/posts'
-import type { BundleMetadata, EncryptedPrivatePostBundle } from '@/types/private-post'
+import type {
+  BundleMetadata,
+  DecryptedPrivatePostDocument,
+  EncryptedPrivatePostBundle,
+} from '@/types/private-post'
 import { deriveRecoveryKeyFromState } from '@/utils/recovery-phrase'
 import { encryptPrivatePost, parseBundleJson } from '@/utils/private-post-crypto'
 import {
@@ -302,19 +310,33 @@ function readPassword(): string {
   return normalized
 }
 
-function readDraftMarkdown(content: HaloPostContent): string {
+function readDraftContent(
+  content: HaloPostContent
+): Pick<DecryptedPrivatePostDocument, 'payload_format' | 'content'> {
   const raw = content.raw.trim()
+  const rendered = content.content.trim()
   const rawType = content.rawType?.trim().toLowerCase() ?? ''
+  const nextContent = raw || rendered
 
-  if (!raw) {
+  if (!nextContent) {
     throw new Error('当前文章还没有已保存的正文内容，请先保存文章再加锁')
   }
 
   if (!rawType || rawType === 'markdown' || rawType === 'md') {
-    return content.raw
+    return {
+      payload_format: 'markdown',
+      content: raw || content.content,
+    }
   }
 
-  throw new Error(`当前正文类型为 ${content.rawType}，暂时只支持 Markdown 正文加锁`)
+  if (rawType === 'html' || rawType === 'htm' || rawType.includes('html')) {
+    return {
+      payload_format: 'html',
+      content: raw || content.content,
+    }
+  }
+
+  throw new Error(`当前正文类型为 ${content.rawType}，暂时只支持 Markdown 或 HTML 正文加锁`)
 }
 
 function setActionMessage(tone: StatusTone, message: string): void {
@@ -371,6 +393,9 @@ async function lockCurrentPost(): Promise<void> {
 
   isWorking.value = true
 
+  const previousBundleText = bundleText.value
+  let annotationPersisted = false
+
   try {
     const recoveryKeyBytes = await deriveRecoveryKeyFromState(localRecoveryState)
     const [summary, content] = await Promise.all([
@@ -381,23 +406,46 @@ async function lockCurrentPost(): Promise<void> {
     const bundle = await encryptPrivatePost(
       {
         metadata: buildMetadata(summary),
-        markdown: readDraftMarkdown(content),
+        ...readDraftContent(content),
       },
       readPassword(),
       recoveryKeyBytes
     )
 
     const nextBundleText = JSON.stringify(bundle, null, 2)
-    writeBundleToField(nextBundleText)
     await persistPrivatePostBundleAnnotation(postName, nextBundleText)
+    annotationPersisted = true
+    await upsertPrivatePostByPostName({
+      bundle,
+      postName,
+    })
+
+    let syncMessage = ''
+    try {
+      writeBundleToField(nextBundleText)
+    } catch {
+      bundleText.value = nextBundleText
+      syncMessage = '已完成加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
+    }
+
     currentPostName.value = postName
     password.value = ''
     confirmPassword.value = ''
     setActionMessage(
       'success',
-      '已基于当前已保存草稿正文加锁，并立即保存到文章设置。后续修改正文后请先保存文章，再重新加锁。'
+      syncMessage || '已基于当前已保存草稿正文加锁，并立即保存到文章设置。后续修改正文后请先保存文章，再重新加锁。'
     )
   } catch (error) {
+    if (annotationPersisted) {
+      try {
+        await persistPrivatePostBundleAnnotation(postName, previousBundleText)
+      } catch {
+        setActionMessage('invalid', `加锁失败，且回滚文章加锁状态失败：${toMessage(error)}`)
+        isWorking.value = false
+        return
+      }
+    }
+
     setActionMessage('invalid', toMessage(error))
   } finally {
     isWorking.value = false
@@ -416,9 +464,27 @@ async function clearBundle(): Promise<void> {
   isWorking.value = true
 
   try {
-    writeBundleToField('')
+    let syncMessage = ''
     await persistPrivatePostBundleAnnotation(postName, '')
-    setActionMessage('neutral', '已取消当前文章加锁，并立即保存到文章设置。')
+    try {
+      writeBundleToField('')
+    } catch {
+      bundleText.value = ''
+      syncMessage = '文章已取消加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
+    }
+
+    try {
+      await deletePrivatePostByPostName(postName)
+    } catch (error) {
+      console.warn('Failed to fully purge private post mapping after unlock.', error)
+      setActionMessage(
+        'neutral',
+        syncMessage || '已取消当前文章加锁，并立即保存到文章设置。历史私密映射将由后台继续清理。'
+      )
+      return
+    }
+
+    setActionMessage('neutral', syncMessage || '已取消当前文章加锁，并立即保存到文章设置。')
   } catch (error) {
     setActionMessage('invalid', toMessage(error))
   } finally {
