@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '0.8.4'
+version = '0.8.13'
 
 def haloPlatformVersion = '2.22.0'
 def haloRuntimeVersion = '2.24.1'
@@ -21,7 +21,6 @@ dependencies {
     // 2.24.x plugin BOM is not published to Maven Central yet.
     implementation platform("run.halo.tools.platform:plugin:${haloPlatformVersion}")
     compileOnly 'run.halo.app:api'
-
     testImplementation 'run.halo.app:api'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

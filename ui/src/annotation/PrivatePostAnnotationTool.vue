@@ -8,8 +8,9 @@ import {
   persistPrivatePostBundleAnnotation,
 } from '@/api/posts'
 import {
-  deletePrivatePostByPostName,
-  upsertPrivatePostByPostName,
+  fetchSiteRecoveryPublicKey,
+  waitForPrivatePostRemoval,
+  waitForPrivatePostSync,
 } from '@/api/private-posts'
 import type { HaloPostContent, HaloPostSummary } from '@/api/posts'
 import type {
@@ -17,12 +18,7 @@ import type {
   DecryptedPrivatePostDocument,
   EncryptedPrivatePostBundle,
 } from '@/types/private-post'
-import { deriveRecoveryKeyFromState } from '@/utils/recovery-phrase'
 import { encryptPrivatePost, parseBundleJson } from '@/utils/private-post-crypto'
-import {
-  getLocalRecoverySecretState,
-  hasLocalRecoverySecretState,
-} from '@/utils/recovery-secret-store'
 
 type StatusTone = 'neutral' | 'valid' | 'invalid' | 'success'
 
@@ -37,7 +33,6 @@ const currentPostName = ref('')
 const actionTone = ref<StatusTone>('neutral')
 const actionMessage = ref('')
 const isWorking = ref(false)
-const localRecoveryReady = ref(hasLocalRecoverySecretState())
 
 let bundleField: HTMLInputElement | HTMLTextAreaElement | null = null
 let cleanupBundleListener: (() => void) | null = null
@@ -112,14 +107,6 @@ const statusMessage = computed(() => {
 
   return bundleParseError.value || '当前加密正文无法解析'
 })
-const recoveryGateMessage = computed(() => {
-  if (localRecoveryReady.value) {
-    return ''
-  }
-
-  return '当前浏览器还没有恢复助记词。请先到“私密文章”页面初始化或导入恢复助记词，再生成新的加密正文。'
-})
-
 const lockButtonText = computed(() => {
   if (isWorking.value) {
     return '正在加锁...'
@@ -130,10 +117,8 @@ const lockButtonText = computed(() => {
 
 onMounted(() => {
   void syncCurrentPostName()
-  syncLocalRecoveryState()
   scheduleDomSync()
   startDomObserver()
-  window.addEventListener('storage', handleStorageChange)
 })
 
 onBeforeUnmount(() => {
@@ -142,7 +127,6 @@ onBeforeUnmount(() => {
   if (domSyncFrame !== null) {
     window.cancelAnimationFrame(domSyncFrame)
   }
-  window.removeEventListener('storage', handleStorageChange)
 })
 
 function bindBundleField(): void {
@@ -385,22 +369,16 @@ async function lockCurrentPost(): Promise<void> {
     return
   }
 
-  const localRecoveryState = getLocalRecoverySecretState()
-  if (!localRecoveryState) {
-    setActionMessage('invalid', '当前浏览器还没有恢复助记词，请先到“私密文章”页面初始化或导入。')
-    return
-  }
-
   isWorking.value = true
 
   const previousBundleText = bundleText.value
   let annotationPersisted = false
 
   try {
-    const recoveryKeyBytes = await deriveRecoveryKeyFromState(localRecoveryState)
-    const [summary, content] = await Promise.all([
+    const [summary, content, siteRecoveryPublicKey] = await Promise.all([
       getHaloPostByName(postName),
       fetchHaloPostHeadContent(postName),
+      fetchSiteRecoveryPublicKey(),
     ])
 
     const bundle = await encryptPrivatePost(
@@ -409,23 +387,33 @@ async function lockCurrentPost(): Promise<void> {
         ...readDraftContent(content),
       },
       readPassword(),
-      recoveryKeyBytes
+      siteRecoveryPublicKey
     )
 
     const nextBundleText = JSON.stringify(bundle, null, 2)
     await persistPrivatePostBundleAnnotation(postName, nextBundleText)
     annotationPersisted = true
-    await upsertPrivatePostByPostName({
-      bundle,
+    const syncedPrivatePost = await waitForPrivatePostSync({
+      expectedBundle: bundle,
       postName,
     })
+    const syncMessage = syncedPrivatePost
+      ? ''
+      : '加锁结果已经保存，但私密映射仍在后台同步，稍后刷新页面即可看到最新状态。'
 
-    let syncMessage = ''
     try {
       writeBundleToField(nextBundleText)
     } catch {
       bundleText.value = nextBundleText
-      syncMessage = '已完成加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
+      const pageSyncMessage = '已完成加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
+      setActionMessage(
+        'success',
+        syncMessage ? `${syncMessage} ${pageSyncMessage}` : pageSyncMessage
+      )
+      currentPostName.value = postName
+      password.value = ''
+      confirmPassword.value = ''
+      return
     }
 
     currentPostName.value = postName
@@ -433,7 +421,7 @@ async function lockCurrentPost(): Promise<void> {
     confirmPassword.value = ''
     setActionMessage(
       'success',
-      syncMessage || '已基于当前已保存草稿正文加锁，并立即保存到文章设置。后续修改正文后请先保存文章，再重新加锁。'
+      syncMessage || '已基于当前已保存草稿正文加锁，并立即保存到文章设置，同时写入平台恢复槽。后续修改正文后请先保存文章，再重新加锁。'
     )
   } catch (error) {
     if (annotationPersisted) {
@@ -464,27 +452,29 @@ async function clearBundle(): Promise<void> {
   isWorking.value = true
 
   try {
-    let syncMessage = ''
     await persistPrivatePostBundleAnnotation(postName, '')
+    const removed = await waitForPrivatePostRemoval({
+      postName,
+    })
+    const syncMessage = removed
+      ? ''
+      : '文章已取消加锁并保存，但私密映射仍在后台清理，稍后刷新页面即可确认最新状态。'
     try {
       writeBundleToField('')
     } catch {
       bundleText.value = ''
-      syncMessage = '文章已取消加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
-    }
-
-    try {
-      await deletePrivatePostByPostName(postName)
-    } catch (error) {
-      console.warn('Failed to fully purge private post mapping after unlock.', error)
+      const pageSyncMessage = '文章已取消加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
       setActionMessage(
         'neutral',
-        syncMessage || '已取消当前文章加锁，并立即保存到文章设置。历史私密映射将由后台继续清理。'
+        syncMessage ? `${syncMessage} ${pageSyncMessage}` : pageSyncMessage
       )
       return
     }
 
-    setActionMessage('neutral', syncMessage || '已取消当前文章加锁，并立即保存到文章设置。')
+    setActionMessage(
+      'neutral',
+      syncMessage || '已取消当前文章加锁，并立即保存到文章设置。'
+    )
   } catch (error) {
     setActionMessage('invalid', toMessage(error))
   } finally {
@@ -621,14 +611,6 @@ function toMessage(error: unknown): string {
 async function syncCurrentPostName(): Promise<void> {
   currentPostName.value = await resolveCurrentPostName()
 }
-
-function syncLocalRecoveryState(): void {
-  localRecoveryReady.value = hasLocalRecoverySecretState()
-}
-
-function handleStorageChange(): void {
-  syncLocalRecoveryState()
-}
 </script>
 
 <template>
@@ -651,10 +633,6 @@ function handleStorageChange(): void {
 
     <p class="hpp-annotation-note">
       说明：先保存正文，再点击“根据当前正文加锁”。加锁和取消加锁都会立即保存状态。
-    </p>
-
-    <p v-if="recoveryGateMessage" class="hpp-annotation-warning">
-      {{ recoveryGateMessage }}
     </p>
 
     <label class="hpp-annotation-field">
@@ -683,7 +661,7 @@ function handleStorageChange(): void {
       <button
         type="button"
         class="hpp-annotation-button hpp-annotation-button-primary"
-        :disabled="isWorking || !localRecoveryReady"
+        :disabled="isWorking"
         @click="lockCurrentPost"
       >
         {{ lockButtonText }}

@@ -3,6 +3,7 @@ package run.halo.privateposts.model;
 import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -44,6 +45,7 @@ public class PrivatePost extends AbstractExtension {
     }
 
     @Data
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Bundle {
         @Schema(requiredMode = REQUIRED)
         private Integer version;
@@ -74,8 +76,8 @@ public class PrivatePost extends AbstractExtension {
         private PasswordSlot passwordSlot;
 
         @Schema(requiredMode = REQUIRED)
-        @JsonProperty("recovery_slot")
-        private RecoverySlot recoverySlot;
+        @JsonProperty("site_recovery_slot")
+        private SiteRecoverySlot siteRecoverySlot;
 
         @Schema(requiredMode = REQUIRED)
         private BundleMetadata metadata;
@@ -103,25 +105,16 @@ public class PrivatePost extends AbstractExtension {
     }
 
     @Data
-    public static class RecoverySlot {
+    public static class SiteRecoverySlot {
         @Schema(requiredMode = REQUIRED)
-        private String scheme;
+        private String kid;
 
         @Schema(requiredMode = REQUIRED)
-        @JsonProperty("wrap_alg")
-        private String wrapAlg;
-
-        @Schema(requiredMode = REQUIRED)
-        @JsonProperty("wrap_iv")
-        private String wrapIv;
+        private String alg;
 
         @Schema(requiredMode = REQUIRED)
         @JsonProperty("wrapped_cek")
         private String wrappedCek;
-
-        @Schema(requiredMode = REQUIRED)
-        @JsonProperty("auth_tag")
-        private String authTag;
     }
 
     @Data

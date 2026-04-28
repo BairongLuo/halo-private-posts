@@ -1,7 +1,7 @@
 {
   "name": "halo-private-posts-ui",
   "private": true,
-  "version": "0.8.4",
+  "version": "0.8.13",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
@@ -20,8 +20,6 @@
     "@halo-dev/richtext-editor": "2.24.0",
     "@halo-dev/ui-shared": "2.24.0",
     "axios": "^1.12.2",
-    "bip39": "^3.1.0",
-    "buffer": "^6.0.3",
     "marked": "15.0.12",
     "scrypt-js": "3.0.1",
     "vue": "3.5.17"

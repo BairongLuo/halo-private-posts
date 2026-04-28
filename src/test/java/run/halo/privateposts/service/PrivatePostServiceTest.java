@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.Comparator;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,7 @@ import run.halo.app.extension.Watcher;
 import run.halo.app.extension.index.IndexedQueryEngine;
 import run.halo.privateposts.model.PrivatePost;
 import run.halo.privateposts.sync.PostPrivatePostSyncListener;
+import run.halo.privateposts.view.PrivatePostView;
 
 class PrivatePostServiceTest {
     @Test
@@ -81,7 +83,8 @@ class PrivatePostServiceTest {
         PrivatePost mapping = privatePost("active-post");
         Post activePost = post(
             "active-post",
-            Map.of(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION, "{\"version\":2}"),
+            Map.of(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+                bundleJson("active-post-slug", "active-post title")),
             false,
             false,
             false,
@@ -107,6 +110,8 @@ class PrivatePostServiceTest {
 
         when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(Flux.just(mapping));
+        when(client.fetch(PrivatePost.class, "invalid-post"))
+            .thenReturn(Mono.just(mapping));
         when(client.delete(mapping))
             .thenReturn(Mono.error(new RuntimeException("schema blocked delete")));
         doReturn(true).when(service).shouldFallbackToStoreDelete(any());
@@ -115,6 +120,23 @@ class PrivatePostServiceTest {
         service.deleteByPostName("invalid-post").block();
 
         verify(service).deleteViaStoreFallback("invalid-post", 7L);
+    }
+
+    @Test
+    void deleteByPostNameShouldPurgeDeletedCanonicalMappingWhenActiveQueryMisses() {
+        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
+        PrivatePostService service = spy(new PrivatePostService(client));
+        PrivatePost deletedMapping = deletedPrivatePost("deleted-post", 11L);
+
+        when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
+            .thenReturn(Flux.empty());
+        when(client.fetch(PrivatePost.class, "deleted-post"))
+            .thenReturn(Mono.just(deletedMapping));
+        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("deleted-post", 11L);
+
+        service.deleteByPostName("deleted-post").block();
+
+        verify(service).deleteViaStoreFallback("deleted-post", 11L);
     }
 
     @Test
@@ -129,15 +151,18 @@ class PrivatePostServiceTest {
             .thenReturn(Flux.just(publicMapping, unpublishedMapping, privateVisibilityMapping));
         when(client.fetch(Post.class, "public-post"))
             .thenReturn(Mono.just(post("public-post", Map.of(
-                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION, "{\"version\":2}"
+                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+                bundleJson("public-post-slug", "public-post title")
             ), false, false, true, Post.VisibleEnum.PUBLIC)));
         when(client.fetch(Post.class, "draft-post"))
             .thenReturn(Mono.just(post("draft-post", Map.of(
-                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION, "{\"version\":2}"
+                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+                bundleJson("draft-post-slug", "draft-post title")
             ), false, false, false, Post.VisibleEnum.PUBLIC)));
         when(client.fetch(Post.class, "internal-post"))
             .thenReturn(Mono.just(post("internal-post", Map.of(
-                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION, "{\"version\":2}"
+                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+                bundleJson("internal-post-slug", "internal-post title")
             ), false, false, true, Post.VisibleEnum.INTERNAL)));
 
         List<String> accessiblePostNames = service.listPubliclyAccessible()
@@ -158,7 +183,8 @@ class PrivatePostServiceTest {
             .thenReturn(Flux.just(mapping));
         when(client.fetch(Post.class, "hidden-post"))
             .thenReturn(Mono.just(post("hidden-post", Map.of(
-                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION, "{\"version\":2}"
+                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+                bundleJson("hidden-post-slug", "hidden-post title")
             ), false, false, true, Post.VisibleEnum.PRIVATE)));
 
         PrivatePost result = service.getPubliclyAccessibleBySlug("hidden-post-slug").block();
@@ -202,6 +228,38 @@ class PrivatePostServiceTest {
     }
 
     @Test
+    void getPublicViewBySlugShouldReadDirectlyFromPublicSourcePost() {
+        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
+        PrivatePostService service = new PrivatePostService(client);
+        Post sourcePost = post(
+            "source-post",
+            Map.of(
+                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+                bundleJson("hello-halo", "Hello Halo")
+            ),
+            false,
+            false,
+            true,
+            Post.VisibleEnum.PUBLIC
+        );
+        sourcePost.getSpec().setSlug("hello-halo");
+        sourcePost.getSpec().setTitle("Hello Halo Updated");
+        sourcePost.getStatus().setExcerpt("runtime excerpt");
+
+        when(client.listAll(eq(Post.class), any(ListOptions.class), any(Sort.class)))
+            .thenReturn(Flux.just(sourcePost));
+
+        PrivatePostView result = service.getPublicViewBySlug("hello-halo").block();
+
+        assertThat(result).isNotNull();
+        assertThat(result.postName()).isEqualTo("source-post");
+        assertThat(result.slug()).isEqualTo("hello-halo");
+        assertThat(result.title()).isEqualTo("Hello Halo Updated");
+        assertThat(result.excerpt()).isEqualTo("runtime excerpt");
+        assertThat(result.bundle().getMetadata().getTitle()).isEqualTo("Hello Halo");
+    }
+
+    @Test
     void reconcileMappingsShouldCreateMappingsForAnnotatedPosts() {
         ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
         PrivatePostService service = new PrivatePostService(client);
@@ -220,6 +278,8 @@ class PrivatePostServiceTest {
 
         when(client.listAll(eq(Post.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(Flux.just(sourcePost));
+        when(client.fetch(PrivatePost.class, "hello-private-post"))
+            .thenReturn(Mono.empty());
         when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(Flux.empty(), Flux.empty());
         when(client.create(any(PrivatePost.class)))
@@ -236,6 +296,34 @@ class PrivatePostServiceTest {
         assertThat(created.get().getSpec().getPostName()).isEqualTo("hello-private-post");
         assertThat(created.get().getSpec().getSlug()).isEqualTo("hello-private-post-slug");
         assertThat(created.get().getSpec().getBundle().getMetadata().getSlug()).isEqualTo("hello-halo");
+    }
+
+    @Test
+    void upsertShouldPurgeDeletedCanonicalMappingBeforeCreate() {
+        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
+        PrivatePostService service = spy(new PrivatePostService(client));
+        PrivatePost deletedMapping = deletedPrivatePost("hello-private-post", 13L);
+        PrivatePost nextMapping = privatePost("hello-private-post");
+        AtomicReference<PrivatePost> created = new AtomicReference<>();
+
+        when(client.fetch(PrivatePost.class, "hello-private-post"))
+            .thenReturn(Mono.just(deletedMapping), Mono.empty());
+        when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
+            .thenReturn(Flux.empty());
+        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("hello-private-post", 13L);
+        when(client.create(any(PrivatePost.class)))
+            .thenAnswer(invocation -> {
+                PrivatePost privatePost = invocation.getArgument(0);
+                created.set(privatePost);
+                return Mono.just(privatePost);
+            });
+
+        PrivatePost result = service.upsert(nextMapping).block();
+
+        assertThat(result).isNotNull();
+        assertThat(created.get()).isNotNull();
+        verify(service).deleteViaStoreFallback("hello-private-post", 13L);
+        verify(client).create(any(PrivatePost.class));
     }
 
     @Test
@@ -267,6 +355,13 @@ class PrivatePostServiceTest {
         return privatePost;
     }
 
+    private static PrivatePost deletedPrivatePost(String postName, long version) {
+        PrivatePost privatePost = privatePost(postName);
+        privatePost.getMetadata().setVersion(version);
+        privatePost.getMetadata().setDeletionTimestamp(Instant.parse("2026-04-28T11:00:00Z"));
+        return privatePost;
+    }
+
     private static Post post(String name,
                              Map<String, String> annotations,
                              boolean recycled,
@@ -293,6 +388,7 @@ class PrivatePostServiceTest {
         spec.setDeleted(deleted);
         spec.setVisible(visible);
         post.setSpec(spec);
+        post.setStatus(new Post.PostStatus());
 
         assertThat(post.isDeleted()).isEqualTo(deleted);
         assertThat(post.isPublished()).isEqualTo(published);
@@ -302,12 +398,21 @@ class PrivatePostServiceTest {
 
     private static String bundleJson(String slug, String title) {
         return """
-            {"version":2,"payload_format":"markdown","cipher":"aes-256-gcm",
-            "kdf":"envelope","data_iv":"2233","ciphertext":"4455","auth_tag":"6677",
-            "password_slot":{"kdf":"scrypt","salt":"0011","wrap_iv":"8899","wrapped_cek":"aabb","auth_tag":"ccdd"},
-            "recovery_slot":{"scheme":"mnemonic-v1","wrap_alg":"aes-256-gcm","wrap_iv":"1122","wrapped_cek":"3344","auth_tag":"5566"},
+            {"version":3,"payload_format":"markdown","cipher":"aes-256-gcm","kdf":"envelope",
+            "data_iv":"00112233445566778899aabb",
+            "ciphertext":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+            "auth_tag":"00112233445566778899aabbccddeeff",
+            "password_slot":{"kdf":"scrypt","salt":"00112233445566778899aabbccddeeff",
+            "wrap_iv":"00112233445566778899aabb","wrapped_cek":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+            "auth_tag":"00112233445566778899aabbccddeeff"},
+            "site_recovery_slot":{"kid":"site-recovery-rsa-oaep-sha256-v1","alg":"RSA-OAEP-256",
+            "wrapped_cek":"%s"},
             "metadata":{"slug":"%s","title":"%s"}}
-            """.formatted(slug, title).trim();
+            """.formatted(repeatHex("11", 384), slug, title).trim();
+    }
+
+    private static String repeatHex(String byteHex, int byteCount) {
+        return byteHex.repeat(byteCount);
     }
 
     private static final class FakeStoreClient {

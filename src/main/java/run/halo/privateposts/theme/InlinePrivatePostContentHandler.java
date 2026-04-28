@@ -12,22 +12,20 @@ import run.halo.app.core.extension.content.Post;
 import run.halo.app.theme.ReactivePostContentHandler;
 import run.halo.privateposts.model.PrivatePost;
 import run.halo.privateposts.service.PrivatePostService;
+import run.halo.privateposts.sync.PostPrivatePostSyncListener;
 
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class InlinePrivatePostContentHandler implements ReactivePostContentHandler {
     private static final int IDLE_TIMEOUT_MS = 300000;
 
-    private final PrivatePostService privatePostService;
-
-    public InlinePrivatePostContentHandler(PrivatePostService privatePostService) {
-        this.privatePostService = privatePostService;
-    }
-
     @Override
     public Mono<PostContentContext> handle(@NonNull PostContentContext postContent) {
         Post post = postContent.getPost();
-        if (!PrivatePostService.isActivePrivatePostSource(post) || post.getMetadata() == null) {
+        if (!PrivatePostService.isActivePrivatePostSource(post)
+            || post.getMetadata() == null
+            || post.getSpec() == null
+            || !StringUtils.hasText(post.getSpec().getSlug())) {
             return Mono.just(postContent);
         }
 
@@ -36,21 +34,27 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
             return Mono.just(postContent);
         }
 
-        return privatePostService.getByPostName(postName)
-            .map(privatePost -> {
-                postContent.setContent(buildInlineReaderHtml(privatePost));
-                return postContent;
-            })
-            .switchIfEmpty(Mono.just(postContent));
+        PrivatePost.Bundle bundle = PostPrivatePostSyncListener.readBundleFromAnnotations(
+            postName,
+            post.getMetadata().getAnnotations()
+        );
+        if (bundle == null) {
+            return Mono.just(postContent);
+        }
+
+        postContent.setContent(buildInlineReaderHtml(post, bundle));
+        return Mono.just(postContent);
     }
 
-    private String buildInlineReaderHtml(PrivatePost privatePost) {
-        String slug = privatePost.getSpec().getSlug();
+    private String buildInlineReaderHtml(Post post, PrivatePost.Bundle bundle) {
+        String slug = post.getSpec().getSlug();
         String encodedSlug = UriUtils.encode(slug, "UTF-8");
-        String excerpt = StringUtils.hasText(privatePost.getSpec().getExcerpt())
+        String excerpt = readExcerpt(post, bundle);
+        String postName = post.getMetadata() == null ? "" : post.getMetadata().getName();
+        String safeExcerpt = StringUtils.hasText(excerpt)
             ? """
                 <p class="hpp-excerpt">%s</p>
-                """.formatted(escape(privatePost.getSpec().getExcerpt()))
+                """.formatted(escape(excerpt))
             : "";
 
         return """
@@ -103,12 +107,30 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
             """.formatted(
             escape("/private-posts/data?slug=" + encodedSlug),
             IDLE_TIMEOUT_MS,
-            excerpt,
-            escape(privatePost.getMetadata().getName()),
-            escape(privatePost.getMetadata().getName()),
+            safeExcerpt,
+            escape(postName),
+            escape(postName),
             escape("/private-posts?slug=" + encodedSlug),
             escape("/private-posts?slug=" + encodedSlug)
         );
+    }
+
+    private static String readExcerpt(Post post, PrivatePost.Bundle bundle) {
+        if (post.getSpec() != null
+            && post.getSpec().getExcerpt() != null
+            && StringUtils.hasText(post.getSpec().getExcerpt().getRaw())) {
+            return post.getSpec().getExcerpt().getRaw();
+        }
+
+        if (post.getStatus() != null && StringUtils.hasText(post.getStatus().getExcerpt())) {
+            return post.getStatus().getExcerpt();
+        }
+
+        if (bundle != null && bundle.getMetadata() != null && StringUtils.hasText(bundle.getMetadata().getExcerpt())) {
+            return bundle.getMetadata().getExcerpt();
+        }
+
+        return "";
     }
 
     private static String escape(String value) {

@@ -20,6 +20,7 @@ import run.halo.app.event.post.PostUpdatedEvent;
 import run.halo.app.event.post.PostVisibleChangedEvent;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.privateposts.model.PrivatePost;
+import run.halo.privateposts.model.PrivatePostBundleValidator;
 import run.halo.privateposts.service.PrivatePostService;
 
 @Component
@@ -125,7 +126,7 @@ public class PostPrivatePostSyncListener {
 
         try {
             PrivatePost.Bundle bundle = OBJECT_MAPPER.readValue(bundleText, PrivatePost.Bundle.class);
-            if (isValidBundle(bundle)) {
+            if (PrivatePostBundleValidator.isValid(bundle)) {
                 return bundle;
             }
 
@@ -135,42 +136,6 @@ public class PostPrivatePostSyncListener {
             log.warn("Invalid private post bundle annotation on post {}.", postName, error);
             return null;
         }
-    }
-
-    private static boolean isValidBundle(@Nullable PrivatePost.Bundle bundle) {
-        if (bundle == null || bundle.getMetadata() == null || bundle.getVersion() == null) {
-            return false;
-        }
-
-        return bundle.getVersion() == 2
-            && StringUtils.hasText(bundle.getPayloadFormat())
-            && StringUtils.hasText(bundle.getCipher())
-            && StringUtils.hasText(bundle.getKdf())
-            && StringUtils.hasText(bundle.getDataIv())
-            && StringUtils.hasText(bundle.getCiphertext())
-            && StringUtils.hasText(bundle.getAuthTag())
-            && isValidPasswordSlot(bundle.getPasswordSlot())
-            && isValidRecoverySlot(bundle.getRecoverySlot())
-            && StringUtils.hasText(bundle.getMetadata().getSlug())
-            && StringUtils.hasText(bundle.getMetadata().getTitle());
-    }
-
-    private static boolean isValidPasswordSlot(@Nullable PrivatePost.PasswordSlot passwordSlot) {
-        return passwordSlot != null
-            && StringUtils.hasText(passwordSlot.getKdf())
-            && StringUtils.hasText(passwordSlot.getSalt())
-            && StringUtils.hasText(passwordSlot.getWrapIv())
-            && StringUtils.hasText(passwordSlot.getWrappedCek())
-            && StringUtils.hasText(passwordSlot.getAuthTag());
-    }
-
-    private static boolean isValidRecoverySlot(@Nullable PrivatePost.RecoverySlot recoverySlot) {
-        return recoverySlot != null
-            && StringUtils.hasText(recoverySlot.getScheme())
-            && StringUtils.hasText(recoverySlot.getWrapAlg())
-            && StringUtils.hasText(recoverySlot.getWrapIv())
-            && StringUtils.hasText(recoverySlot.getWrappedCek())
-            && StringUtils.hasText(recoverySlot.getAuthTag());
     }
 
     private static String readExcerpt(Post post) {

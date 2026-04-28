@@ -1,18 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { getHaloPostByName, persistPrivatePostBundleAnnotation } from '@/api/posts'
-import { buildPrivatePostResource, listPrivatePosts, updatePrivatePost } from '@/api/private-posts'
-import RecoveryMnemonicManager from '@/components/RecoveryMnemonicManager.vue'
-import type { HaloPostSummary } from '@/api/posts'
-import type { EncryptedPrivatePostBundle, PrivatePost } from '@/types/private-post'
-import { syncPrivatePostRegistry } from '@/stores/private-post-registry'
-import { hasLocalRecoverySecretState } from '@/utils/recovery-secret-store'
+import { getHaloPostByName } from '@/api/posts'
 import {
-  rewrapPrivatePostPasswordWithKnownPassword,
-  rewrapPrivatePostPasswordWithRecoveryPhrase,
-} from '@/utils/private-post-crypto'
+  listPrivatePosts,
+  resetPrivatePostPasswordWithSiteRecovery,
+} from '@/api/private-posts'
+import type { HaloPostSummary } from '@/api/posts'
+import type { PrivatePost } from '@/types/private-post'
+import { syncPrivatePostRegistry } from '@/stores/private-post-registry'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,21 +17,13 @@ const router = useRouter()
 const items = ref<PrivatePost[]>([])
 const loading = ref(false)
 const loadingSelectedPost = ref(false)
-const rotatingPassword = ref(false)
-const resettingWithMnemonic = ref(false)
+const resettingWithSiteRecovery = ref(false)
 const errorMessage = ref('')
 const selectedPost = ref<HaloPostSummary | null>(null)
-const currentPassword = ref('')
-const nextPassword = ref('')
-const confirmNextPassword = ref('')
-const rotateMessage = ref('')
-const rotateMessageTone = ref<'neutral' | 'success' | 'error'>('neutral')
-const recoveryMnemonic = ref('')
 const recoveryNextPassword = ref('')
 const recoveryConfirmNextPassword = ref('')
 const recoveryMessage = ref('')
 const recoveryMessageTone = ref<'neutral' | 'success' | 'error'>('neutral')
-const localRecoveryReady = ref(hasLocalRecoverySecretState())
 
 const routePostName = computed(() => readQueryString(route.query.postName))
 const selectedPostMapping = computed(() => {
@@ -65,7 +54,7 @@ const selectedArticleSlug = computed(() => {
 
   return selectedPostMapping.value?.spec.slug ?? ''
 })
-const passwordRotationAvailability = computed(() => {
+const siteRecoveryAvailability = computed(() => {
   if (!routePostName.value) {
     return '先从列表选中一篇文章。'
   }
@@ -74,58 +63,28 @@ const passwordRotationAvailability = computed(() => {
     return '当前文章还没有同步出私密正文。'
   }
 
-  return '输入旧口令和新口令。'
+  if (selectedPostMapping.value.spec.bundle.site_recovery_slot) {
+    return '输入新口令后，平台会直接重写 password slot。'
+  }
+
+  return '当前文章缺少有效的平台恢复槽。请重新加锁后再使用平台恢复。'
 })
-const mnemonicResetAvailability = computed(() => {
-  if (!routePostName.value) {
-    return '先从列表选中一篇文章。'
-  }
-
-  if (!selectedPostMapping.value) {
-    return '当前文章还没有同步出私密正文。'
-  }
-
-  if (localRecoveryReady.value) {
-    return '输入助记词和新口令。'
-  }
-
-  return '当前浏览器未导入助记词，也可手动输入助记词重置。'
-})
-const canRotatePassword = computed(() => {
+const canResetWithSiteRecovery = computed(() => {
   return Boolean(
     selectedPostMapping.value
-      && currentPassword.value.trim()
-      && nextPassword.value.trim()
-      && confirmNextPassword.value.trim()
-  )
-})
-const canResetWithMnemonic = computed(() => {
-  return Boolean(
-    selectedPostMapping.value
-      && recoveryMnemonic.value.trim()
+      && selectedPostMapping.value.spec.bundle.site_recovery_slot
       && recoveryNextPassword.value.trim()
       && recoveryConfirmNextPassword.value.trim()
   )
 })
 
 onMounted(() => {
-  syncLocalRecoveryState()
-  window.addEventListener('storage', handleStorageChange)
   void initializeView()
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('storage', handleStorageChange)
-})
-
 watch(routePostName, () => {
-  currentPassword.value = ''
-  nextPassword.value = ''
-  confirmNextPassword.value = ''
-  recoveryMnemonic.value = ''
   recoveryNextPassword.value = ''
   recoveryConfirmNextPassword.value = ''
-  clearRotateMessage()
   clearRecoveryMessage()
   void syncSelectionFromRoute()
 })
@@ -182,19 +141,9 @@ async function selectPost(postName: string) {
   })
 }
 
-function clearRotateMessage() {
-  rotateMessage.value = ''
-  rotateMessageTone.value = 'neutral'
-}
-
 function clearRecoveryMessage() {
   recoveryMessage.value = ''
   recoveryMessageTone.value = 'neutral'
-}
-
-function setRotateMessage(tone: 'neutral' | 'success' | 'error', message: string) {
-  rotateMessageTone.value = tone
-  rotateMessage.value = message
 }
 
 function setRecoveryMessage(tone: 'neutral' | 'success' | 'error', message: string) {
@@ -202,64 +151,10 @@ function setRecoveryMessage(tone: 'neutral' | 'success' | 'error', message: stri
   recoveryMessage.value = message
 }
 
-async function rotatePasswordWithCurrentPassword() {
-  clearRotateMessage()
-
-  const mapping = selectedPostMapping.value
-  const normalizedCurrentPassword = currentPassword.value.trim()
-  const normalizedNextPassword = nextPassword.value.trim()
-  const normalizedConfirmNextPassword = confirmNextPassword.value.trim()
-
-  if (!mapping) {
-    setRotateMessage('error', '请先选择一篇已加密文章。')
-    return
-  }
-
-  if (!normalizedCurrentPassword) {
-    setRotateMessage('error', '请输入当前访问口令。')
-    return
-  }
-
-  if (!normalizedNextPassword) {
-    setRotateMessage('error', '请输入新的访问口令。')
-    return
-  }
-
-  if (!normalizedConfirmNextPassword) {
-    setRotateMessage('error', '请再次输入新的访问口令。')
-    return
-  }
-
-  if (normalizedNextPassword !== normalizedConfirmNextPassword) {
-    setRotateMessage('error', '两次输入的新访问口令不一致。')
-    return
-  }
-
-  rotatingPassword.value = true
-
-  try {
-    const nextBundle = await rewrapPrivatePostPasswordWithKnownPassword(
-      mapping.spec.bundle,
-      normalizedCurrentPassword,
-      normalizedNextPassword
-    )
-    await persistBundle(mapping, nextBundle)
-    currentPassword.value = ''
-    nextPassword.value = ''
-    confirmNextPassword.value = ''
-    setRotateMessage('success', '访问口令已更新。')
-  } catch (error) {
-    setRotateMessage('error', `修改访问口令失败：${toMessage(error)}`)
-  } finally {
-    rotatingPassword.value = false
-  }
-}
-
-async function resetPasswordWithMnemonic() {
+async function resetPasswordWithSiteRecovery() {
   clearRecoveryMessage()
 
   const mapping = selectedPostMapping.value
-  const normalizedMnemonic = recoveryMnemonic.value.trim()
   const normalizedNextPassword = recoveryNextPassword.value.trim()
   const normalizedConfirmNextPassword = recoveryConfirmNextPassword.value.trim()
 
@@ -268,8 +163,8 @@ async function resetPasswordWithMnemonic() {
     return
   }
 
-  if (!normalizedMnemonic) {
-    setRecoveryMessage('error', '请输入恢复助记词。')
+  if (!mapping.spec.bundle.site_recovery_slot) {
+    setRecoveryMessage('error', '当前文章缺少有效的平台恢复槽，请重新加锁后再使用平台恢复。')
     return
   }
 
@@ -288,80 +183,28 @@ async function resetPasswordWithMnemonic() {
     return
   }
 
-  resettingWithMnemonic.value = true
+  resettingWithSiteRecovery.value = true
 
   try {
-    const nextBundle = await rewrapPrivatePostPasswordWithRecoveryPhrase(
-      mapping.spec.bundle,
-      normalizedMnemonic,
-      normalizedNextPassword
-    )
-    await persistBundle(mapping, nextBundle)
-    recoveryMnemonic.value = ''
+    await resetPrivatePostPasswordWithSiteRecovery({
+      postName: mapping.spec.postName,
+      nextPassword: normalizedNextPassword,
+    })
+    await refreshItems()
+    await syncSelectionFromRoute()
     recoveryNextPassword.value = ''
     recoveryConfirmNextPassword.value = ''
-    setRecoveryMessage('success', '访问口令已重置。')
+    setRecoveryMessage('success', '访问口令已通过平台恢复能力重置。')
   } catch (error) {
-    setRecoveryMessage('error', `使用恢复助记词重置口令失败：${toMessage(error)}`)
+    setRecoveryMessage('error', `使用平台恢复能力重置口令失败：${toMessage(error)}`)
   } finally {
-    resettingWithMnemonic.value = false
+    resettingWithSiteRecovery.value = false
   }
-}
-
-async function persistBundle(mapping: PrivatePost, nextBundle: EncryptedPrivatePostBundle) {
-  const nextBundleText = JSON.stringify(nextBundle, null, 2)
-  const nextPrivatePost = buildPrivatePostResource({
-    bundle: nextBundle,
-    postName: mapping.spec.postName,
-    existing: mapping,
-  })
-  await persistPrivatePostBundleAnnotation(mapping.spec.postName, nextBundleText)
-  const updatedPrivatePost = await updatePrivatePost(nextPrivatePost)
-  applyOptimisticBundle(mapping.spec.postName, nextBundle)
-  replaceItem(updatedPrivatePost)
-}
-
-function applyOptimisticBundle(postName: string, nextBundle: EncryptedPrivatePostBundle) {
-  items.value = items.value.map((item) => {
-    if (item.spec.postName !== postName) {
-      return item
-    }
-
-    return {
-      ...item,
-      spec: {
-        ...item.spec,
-        bundle: nextBundle,
-      },
-    }
-  })
-
-  syncPrivatePostRegistry(items.value)
-}
-
-function replaceItem(nextItem: PrivatePost) {
-  items.value = items.value.map((item) => {
-    return item.metadata.name === nextItem.metadata.name ? nextItem : item
-  })
-
-  syncPrivatePostRegistry(items.value)
-}
-
-function handleRecoveryStateChanged(nextState: unknown) {
-  localRecoveryReady.value = Boolean(nextState)
 }
 
 async function initializeView() {
   await refreshItems()
   await syncSelectionFromRoute()
-}
-
-function syncLocalRecoveryState() {
-  localRecoveryReady.value = hasLocalRecoverySecretState()
-}
-
-function handleStorageChange() {
-  syncLocalRecoveryState()
 }
 
 function formatTimestamp(value?: string) {
@@ -401,7 +244,7 @@ function toMessage(error: unknown) {
           <p class="eyebrow">Halo Private Posts</p>
           <h1>私密文章口令维护</h1>
           <p class="summary">
-            正常阅读始终靠访问口令。知道旧口令时可直接修改；忘记旧口令时，可用恢复助记词重置。
+            正常阅读始终靠访问口令。后台只保留平台恢复重置入口，不再提供基于旧口令的直接修改。
           </p>
         </div>
         <div class="hero-actions">
@@ -434,74 +277,9 @@ function toMessage(error: unknown) {
           <div class="focus-panels">
             <section class="action-panel">
               <div>
-                <h3>知道旧口令时直接修改</h3>
-                <p class="panel-copy">{{ passwordRotationAvailability }}</p>
+                <h3>平台恢复重置访问口令</h3>
+                <p class="panel-copy">{{ siteRecoveryAvailability }}</p>
               </div>
-
-              <label class="panel-field">
-                <span>当前访问口令</span>
-                <input
-                  v-model="currentPassword"
-                  type="password"
-                  class="panel-input"
-                  autocomplete="current-password"
-                  placeholder="输入当前访问口令"
-                />
-              </label>
-
-              <label class="panel-field">
-                <span>新的访问口令</span>
-                <input
-                  v-model="nextPassword"
-                  type="password"
-                  class="panel-input"
-                  autocomplete="new-password"
-                  placeholder="输入新的访问口令"
-                />
-              </label>
-
-              <label class="panel-field">
-                <span>确认新的访问口令</span>
-                <input
-                  v-model="confirmNextPassword"
-                  type="password"
-                  class="panel-input"
-                  autocomplete="new-password"
-                  placeholder="再次输入新的访问口令"
-                />
-              </label>
-
-              <div class="focus-actions">
-                <button
-                  class="action-button"
-                  type="button"
-                  :disabled="rotatingPassword || !canRotatePassword"
-                  @click="rotatePasswordWithCurrentPassword"
-                >
-                  {{ rotatingPassword ? '修改中…' : '修改访问口令' }}
-                </button>
-              </div>
-
-              <p v-if="rotateMessage" class="password-message" :data-tone="rotateMessageTone">
-                {{ rotateMessage }}
-              </p>
-            </section>
-
-            <section class="action-panel">
-              <div>
-                <h3>忘记旧口令时用助记词重置</h3>
-                <p class="panel-copy">{{ mnemonicResetAvailability }}</p>
-              </div>
-
-              <label class="panel-field">
-                <span>恢复助记词</span>
-                <textarea
-                  v-model="recoveryMnemonic"
-                  class="panel-textarea"
-                  spellcheck="false"
-                  placeholder="输入 12 个英文单词"
-                />
-              </label>
 
               <label class="panel-field">
                 <span>新的访问口令</span>
@@ -529,10 +307,10 @@ function toMessage(error: unknown) {
                 <button
                   class="action-button"
                   type="button"
-                  :disabled="resettingWithMnemonic || !canResetWithMnemonic"
-                  @click="resetPasswordWithMnemonic"
+                  :disabled="resettingWithSiteRecovery || !canResetWithSiteRecovery"
+                  @click="resetPasswordWithSiteRecovery"
                 >
-                  {{ resettingWithMnemonic ? '重置中…' : '使用助记词重置口令' }}
+                  {{ resettingWithSiteRecovery ? '重置中…' : '使用平台恢复能力重置口令' }}
                 </button>
               </div>
 
@@ -544,7 +322,7 @@ function toMessage(error: unknown) {
         </template>
 
         <p v-else class="focus-excerpt">
-          从下方列表选中一篇已加密文章，然后在这里修改或重置访问口令。
+          从下方列表选中一篇已加密文章，然后在这里使用平台恢复能力重置访问口令。
         </p>
       </section>
 
@@ -560,14 +338,10 @@ function toMessage(error: unknown) {
             <dd>{{ displayItems.length }}</dd>
           </div>
           <div>
-            <dt>恢复助记词</dt>
-            <dd>{{ localRecoveryReady ? '已导入' : '未导入' }}</dd>
+            <dt>平台恢复</dt>
+            <dd>{{ selectedPostMapping?.spec.bundle.site_recovery_slot ? '当前文章已支持' : '当前文章未支持' }}</dd>
           </div>
         </dl>
-      </section>
-
-      <section class="manager-card">
-        <RecoveryMnemonicManager @changed="handleRecoveryStateChanged" />
       </section>
 
       <section class="list-card">

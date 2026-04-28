@@ -4,26 +4,51 @@
 
 ## 先记住这些约束
 
-- 当前只支持 `EncryptedPrivatePostBundle v2`。
+- 当前只支持 `EncryptedPrivatePostBundle v3`。
 - 当前正文 payload 只支持 `markdown` 和 `html` 两种格式。
 - bundle 的真源是 `Post.metadata.annotations["privateposts.halo.run/bundle"]`。
 - `PrivatePost` 只能反映文章状态，不能再变回单独的正文编辑入口。
 - `PrivatePost.metadata.name` 统一等于 `spec.postName`。
-- 阅读端公开交互只保留密码解锁，不再暴露恢复助记词入口。
-- 服务端不保存访问口令，也不保存恢复助记词。
-- 当前的恢复模型是“当前浏览器持有一份本地恢复状态，对应一组只显示一次的恢复助记词”。
-- 旧 `v1` 兼容链路、旧块标签提取、旧编辑器入口都已经删掉，不要默认再加回来。
+- 阅读端公开交互只保留密码解锁，不再暴露恢复入口。
+- 服务端不保存访问口令，但会保存站点恢复私钥。
+- 平台恢复重置口令必须走服务端，不要把 `CEK` 或恢复私钥暴露到浏览器。
 
 ## 主要入口
 
-`ui/src/annotation/PrivatePostAnnotationTool.vue` 是文章设置里的加锁入口。现在的加锁动作就是在这里读取当前文章已保存的 Markdown 或 HTML 正文、生成 `v2 bundle`、写回文章注解，并同时写入 `password_slot` 和 `recovery_slot`。
+`ui/src/annotation/PrivatePostAnnotationTool.vue` 是文章设置里的加锁入口。现在的加锁动作是在这里读取当前文章已保存的 Markdown 或 HTML 正文、生成 `v3 bundle`、写回文章注解，并同时写入 `password_slot` 和 `site_recovery_slot`。
 
 当前顺序要记准：
 
 - 加锁：先持久化 bundle 注解，再按 `postName` upsert `PrivatePost`；如果镜像写入失败，会把注解回滚到旧值
 - 取消加锁：先移除 bundle 注解，再按 `postName` 最佳努力补删所有 `PrivatePost`；`404` 视为已清理，不应该再冒泡成英文全局错误弹窗
 
-`src/main/java/run/halo/privateposts/sync/PostPrivatePostSyncListener.java` 负责把文章注解同步成 `PrivatePost`。文章保存、发布、删除后，这里会决定创建、更新还是删除镜像数据，所以只要出现“设置里看着生效，实际文章没生效”这类问题，通常先看这里。
+`src/main/java/run/halo/privateposts/sync/PostPrivatePostSyncListener.java` 负责把文章注解同步成 `PrivatePost`。它现在只接受 `v3 + site_recovery_slot`。如果这里回退，后台列表、阅读接口和启动补扫都会偏掉。
+
+`src/main/java/run/halo/privateposts/model/PrivatePostBundleValidator.java` 是现在的 bundle 真正入口校验器。它不只检查字段是否存在，还会检查：
+
+- `v3` 版本是否正确
+- `payload_format / cipher / kdf / site_recovery_slot.alg` 是否属于当前支持集合
+- `data_iv / auth_tag / password_slot / site_recovery_slot.wrapped_cek` 的 hex 长度是否符合当前协议
+
+这意味着以前那种测试占位数据、历史手工脏数据、或者只长得像 bundle 但长度明显不可能的假数据，都会被判定为无效，不会再进入同步、阅读或平台恢复链路。
+
+## 平台恢复链路
+
+平台恢复相关入口现在分成三块：
+
+- `src/main/java/run/halo/privateposts/service/SiteRecoveryKeyService.java`
+- `src/main/java/run/halo/privateposts/service/PasswordSlotCryptoService.java`
+- `src/main/java/run/halo/privateposts/router/PrivatePostConsoleRouter.java`
+
+语义是：
+
+- `SiteRecoveryKeyService` 负责生成和持久化站点恢复 RSA 密钥对，并提供恢复公钥给前端
+- `PasswordSlotCryptoService` 负责服务端重写 `password_slot`
+- `PrivatePostConsoleRouter` 提供后台恢复接口，并在重置口令时同时回写文章真实注解和 `PrivatePost` 镜像
+
+这里最容易踩的点是：不要只更新 `PrivatePost`，必须同步更新 `Post.metadata.annotations["privateposts.halo.run/bundle"]`。文章注解才是真源。
+
+另外一个高频误判点是：如果后台重置口令返回“当前文章还没有有效的私密正文 bundle，请重新加锁后再使用平台恢复”，先不要怀疑恢复私钥。优先检查源文章注解里的 bundle 是否本来就是占位数据、历史脏数据，或者根本没有通过当前 `v3` 校验。
 
 ## `PrivatePost` 残留清理语义
 
@@ -45,57 +70,19 @@
 - 再次加锁前会先清理同 `postName` 下的软删除残留，再做创建或更新
 - 取消加锁和后台清理都会对同一资源名连续尝试两次删除，尽量把软删除推进到真正移除
 
-有一类历史数据要特别注意：旧版本 `PrivatePost` 结构可能和当前 schema 不一致，Halo 在 `client.delete(...)` 前会先做 schema 校验，导致正常删除直接失败。当前实现会先尝试正常删除；如果命中这类校验异常，再降级到 extension store 级别删除，避免“文章已经删了，但后台列表还留着”的长期残留。
+## 前端职责边界
 
-如果后台“已加密文章”里仍然出现幽灵记录，排查顺序建议固定为：
+`ui/src/views/PrivatePostsView.vue` 现在只保留平台恢复口令维护入口：
 
-- 先看源 `Post` 是否已经删除、回收，或者 bundle 注解是否已移除
-- 再看插件启动日志里是否出现 `Failed to cleanup stale private post mappings on startup`
-- 最后再直接检查 `extensions` 表里的 `PrivatePost` 行，而不是先怀疑前端缓存
+- 直接调用后台平台恢复接口重写 `password_slot`
 
-原文章页的锁定态和原位解锁，主要在这几处：
-
-- `src/main/java/run/halo/privateposts/theme/InlinePrivatePostContentHandler.java`
-- `src/main/java/run/halo/privateposts/theme/PrivatePostReaderAssetsHeadProcessor.java`
-- `ui/src/reader.ts`
-
-前两者负责把 reader 资源挂到主题页面里，并在正文区域输出锁定态；真正的浏览器端解锁、自动重锁和渲染在 `ui/src/reader.ts`。
-
-阅读页和匿名 JSON 接口都显式返回 `Cache-Control: no-store`，reader 端拉 bundle 时也会使用 `cache: "no-store"`，避免取消加锁或重新加锁后还读到旧缓存。
-
-后台的口令维护在 `ui/src/views/PrivatePostsView.vue`。这里不会回显旧口令，也不会重新加密正文本体，而是支持两条路：知道旧口令时直接解开 `password_slot` 后重写；忘记旧口令时依赖当前输入的恢复助记词解开 `recovery_slot` 后重写。最后再把 bundle 同步回文章注解和 `PrivatePost`。
-
-和密码学直接相关的逻辑主要集中在下面几个文件：
-
-- `ui/src/utils/private-post-crypto.ts`
-- `ui/src/utils/recovery-phrase.ts`
-- `ui/src/utils/recovery-secret-store.ts`
-
-这里分别处理 bundle 校验、正文加解密、密码槽包裹、恢复槽包裹，以及恢复助记词的派生和本地存储。
-
-插件卸载时的清理逻辑在：
-
-- `src/main/java/run/halo/privateposts/HaloPrivatePostsPlugin.java`
-- `src/main/java/run/halo/privateposts/cleanup/PluginUninstallCleanupService.java`
-
-现在的语义是，只有真正删除插件时才尝试清理；停用、升级、重启都不走这一条。清理目标是让文章回到普通文章状态，不是再引入一套额外的正文存储。
-
-## 已经明确放弃的方案
-
-下面这些东西已经是历史包袱，不要默认恢复：
-
-- `v1` bundle 兼容
-- 从正文 HTML 里回捞 `halo-private-post-block`
-- 旧的 `ui/src/editor/*` 迁移入口
-- “兼容阅读页”“兼容迁移”这一类产品表述
-
-如果后面真的要把其中某条重新带回来，应该把它当成新需求，而不是顺手补兼容。
+不要把“平台恢复”实现成浏览器私钥解包模式。浏览器端只负责写入 `site_recovery_slot`，不持有恢复私钥。
 
 ## 改动时容易踩的点
 
 - 不要把 `PrivatePost` 当成正文真源。真正需要持久化的 bundle 还是文章注解。
-- 不要把恢复助记词或恢复熵上传到服务端。当前恢复链路就是浏览器本地恢复秘密包裹同一个 `CEK`。
-- 不要在公开阅读页再加恢复助记词入口。现在对外只保留密码这一条。
+- 不要在公开阅读页再加恢复入口。现在对外只保留密码这一条。
+- 不要把站点恢复私钥下发到浏览器。
 - 不要把“停用插件”“升级插件”“删除插件”混成同一个生命周期处理。
 
 ## 提交前至少跑一下
@@ -105,7 +92,6 @@
 ```bash
 cd ui
 npm run type-check
-npm run test:unit
 ```
 
 涉及服务端或整包行为时，再补：
@@ -114,7 +100,3 @@ npm run test:unit
 ./gradlew test
 ./gradlew build
 ```
-
-## 当前判断
-
-这套实现的主链路已经能用，最近也补过真实 Halo 环境下的构建、热重载和公开可见性回归。对外发布前，剩余重点更偏向主题兼容、安装说明和更大范围的版本回归，而不是主链路功能缺口。

@@ -4,8 +4,7 @@
 
 1. Halo Console 插件页
    - 展示已加密文章
-   - 初始化或导入恢复助记词
-   - 后台修改或重置访问口令
+   - 后台平台恢复重置访问口令
 2. 文章设置里的私密正文工具
    - 在当前文章上直接加锁或取消加锁
    - 直接维护注解里的 `bundle`
@@ -18,14 +17,14 @@
 
 - 入口：`src/index.ts`
 - 主视图：`src/views/PrivatePostsView.vue`
-- 数据源：Halo 扩展资源 `/apis/privateposts.halo.run/v1alpha1/privateposts`
+- 数据源：
+  - Halo 扩展资源 `/apis/privateposts.halo.run/v1alpha1/privateposts`
+  - Console 恢复接口 `/apis/api.console.halo.run/v1alpha1/private-posts/*`
 - 能力：
   - 通过 `post:list-item:field:create` 在文章列表显示私密正文状态
   - 从文章列表跳转到对应文章的私密正文配置页
   - 按 `postName` 载入真实 Halo 文章信息
-  - 读取当前浏览器里的本地恢复状态
-  - 知道旧口令时只重写 `password_slot`
-  - 忘记旧口令时通过恢复助记词重写 `password_slot`
+  - 通过平台恢复接口重写 `password_slot`
 
 ## 文章设置工具
 
@@ -33,9 +32,9 @@
 - 挂载：`src/annotation/mount.ts`
 - 能力：
   - 读取当前文章正文
-  - 浏览器本地生成 `EncryptedPrivatePostBundle v2`
+  - 浏览器本地生成 `EncryptedPrivatePostBundle v3`
   - 直接写回 `privateposts.halo.run/bundle`
-  - 自动写入 `password_slot` 和 `recovery_slot`
+  - 自动写入 `password_slot` 和 `site_recovery_slot`
 
 ## Reader
 
@@ -51,15 +50,11 @@
 ## 关键实现
 
 - `src/utils/private-post-crypto.ts`
-  - `EncryptedPrivatePostBundle v2` 解析、校验和加解密
-- `src/utils/recovery-phrase.ts`
-  - 恢复助记词规范、校验和恢复密钥派生
-- `src/utils/recovery-secret-store.ts`
-  - 当前浏览器本地恢复状态存储
+  - `EncryptedPrivatePostBundle v3` 生成、解析、校验和加解密
 - `src/components/PostPrivateBodyField.vue`
   - Halo 文章列表里的私密正文状态字段
 - `src/views/PrivatePostsView.vue`
-  - Console 管理页、恢复助记词管理和口令维护流
+  - Console 管理页和口令维护流
 - `src/reader.ts`
   - 阅读页挂载和自动重锁逻辑
 

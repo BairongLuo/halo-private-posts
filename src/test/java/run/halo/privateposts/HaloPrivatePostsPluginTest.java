@@ -24,7 +24,7 @@ class HaloPrivatePostsPluginTest {
         PrivatePostService privatePostService = mock(PrivatePostService.class);
         when(privatePostService.cleanupStaleMappings()).thenReturn(Mono.just(0));
         HaloPrivatePostsPlugin plugin = new HaloPrivatePostsPlugin(
-            new PluginContext("halo-private-posts", "config", "0.8.4", null),
+            new PluginContext("halo-private-posts", "config", "0.8.12", null),
             mock(SchemeManager.class),
             extensionClient,
             cleanupService,
@@ -50,7 +50,7 @@ class HaloPrivatePostsPluginTest {
         PrivatePostService privatePostService = mock(PrivatePostService.class);
         when(privatePostService.cleanupStaleMappings()).thenReturn(Mono.just(0));
         HaloPrivatePostsPlugin plugin = new HaloPrivatePostsPlugin(
-            new PluginContext("halo-private-posts", "config", "0.8.4", null),
+            new PluginContext("halo-private-posts", "config", "0.8.12", null),
             mock(SchemeManager.class),
             extensionClient,
             cleanupService,

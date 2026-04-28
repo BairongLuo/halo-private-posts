@@ -13,12 +13,16 @@ export interface PasswordSlot {
   auth_tag: string
 }
 
-export interface RecoverySlot {
-  scheme: string
-  wrap_alg: string
-  wrap_iv: string
+export interface SiteRecoverySlot {
+  kid: string
+  alg: string
   wrapped_cek: string
-  auth_tag: string
+}
+
+export interface SiteRecoveryPublicKey {
+  kid: string
+  alg: string
+  publicKey: string
 }
 
 export interface EncryptedPrivatePostBundle {
@@ -30,7 +34,7 @@ export interface EncryptedPrivatePostBundle {
   ciphertext: string
   auth_tag: string
   password_slot: PasswordSlot
-  recovery_slot: RecoverySlot
+  site_recovery_slot: SiteRecoverySlot
   metadata: BundleMetadata
 }
 
@@ -80,4 +84,9 @@ export interface DecryptedPrivatePostDocument {
   metadata: BundleMetadata
   payload_format: PrivatePostPayloadFormat
   content: string
+}
+
+export interface SiteRecoveryResetRequest {
+  postName: string
+  nextPassword: string
 }

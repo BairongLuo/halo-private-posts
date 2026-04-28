@@ -7,27 +7,24 @@ import type {
   EncryptedPrivatePostBundle,
   PasswordSlot,
   PrivatePostPayloadFormat,
-  RecoverySlot,
+  SiteRecoveryPublicKey,
+  SiteRecoverySlot,
 } from '@/types/private-post'
-import {
-  deriveRecoveryKeyFromMnemonic,
-  RECOVERY_KEY_WRAP_ALGORITHM,
-  RECOVERY_MNEMONIC_SCHEME,
-} from '@/utils/recovery-phrase'
 
-const BUNDLE_VERSION = 2
+const BUNDLE_VERSION = 3
 const BUNDLE_CIPHER = 'aes-256-gcm'
 const BUNDLE_KDF = 'envelope'
 const PASSWORD_SLOT_KDF = 'scrypt'
+const SITE_RECOVERY_WRAP_ALGORITHM = 'RSA-OAEP-256'
 const AES_GCM_ALGORITHM = 'aes-256-gcm'
-const SCRYPT_N = 1 << 15
-const SCRYPT_R = 8
-const SCRYPT_P = 1
 const AES_GCM_TAG_LENGTH = 128
 const AES_GCM_TAG_BYTES = AES_GCM_TAG_LENGTH / 8
 const BUNDLE_SALT_BYTES = 16
 const BUNDLE_IV_BYTES = 12
 const CONTENT_KEY_BYTES = 32
+const SCRYPT_N = 1 << 15
+const SCRYPT_R = 8
+const SCRYPT_P = 1
 const MARKDOWN_RENDERER_BASE_URL = 'https://halo-private-posts.invalid'
 const ALLOWED_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 const ALLOWED_IMAGE_PROTOCOLS = new Set(['http:', 'https:'])
@@ -239,7 +236,7 @@ export function normalizeBundle(bundle: unknown): EncryptedPrivatePostBundle {
     ciphertext: readNonEmptyString(bundle.ciphertext, 'ciphertext'),
     auth_tag: readNonEmptyString(bundle.auth_tag, 'auth_tag'),
     password_slot: normalizePasswordSlot(bundle.password_slot),
-    recovery_slot: normalizeRecoverySlot(bundle.recovery_slot),
+    site_recovery_slot: normalizeSiteRecoverySlot(bundle.site_recovery_slot),
     metadata: normalizeBundleMetadata(bundle.metadata),
   }
 }
@@ -247,7 +244,7 @@ export function normalizeBundle(bundle: unknown): EncryptedPrivatePostBundle {
 export async function encryptPrivatePost(
   document: DecryptedPrivatePostDocument,
   password: string,
-  recoveryKeyBytes: Uint8Array
+  siteRecoveryPublicKey: SiteRecoveryPublicKey
 ): Promise<EncryptedPrivatePostBundle> {
   const normalizedDocument = normalizePrivatePostDocument(document)
   if (password.length === 0) {
@@ -275,9 +272,7 @@ export async function encryptPrivatePost(
   if (normalizedDocument.payload_format === 'markdown') {
     payload.markdown = normalizedDocument.content
   }
-  const payloadBytes = new TextEncoder().encode(
-    JSON.stringify(payload)
-  )
+  const payloadBytes = new TextEncoder().encode(JSON.stringify(payload))
   const encryptedPayload = new Uint8Array(
     await cryptoApi.encrypt(
       {
@@ -299,10 +294,10 @@ export async function encryptPrivatePost(
     throw new Error('生成 bundle 失败：password slot 长度异常')
   }
 
-  const wrappedRecoveryKey = await createRecoveryWrappedContentKey(recoveryKeyBytes, contentKeyBytes)
-  if (wrappedRecoveryKey.wrappedContentKey.length <= AES_GCM_TAG_BYTES) {
-    throw new Error('生成 bundle 失败：recovery slot 长度异常')
-  }
+  const wrappedSiteRecoveryKey = await createSiteRecoveryWrappedContentKey(
+    siteRecoveryPublicKey,
+    contentKeyBytes
+  )
 
   const contentCiphertext = encryptedPayload.slice(0, -AES_GCM_TAG_BYTES)
   const contentAuthTag = encryptedPayload.slice(-AES_GCM_TAG_BYTES)
@@ -316,7 +311,7 @@ export async function encryptPrivatePost(
     ciphertext: bytesToHex(contentCiphertext),
     auth_tag: bytesToHex(contentAuthTag),
     password_slot: buildPasswordSlotFromWrappedContentKey(wrappedPasswordKey),
-    recovery_slot: buildRecoverySlotFromWrappedContentKey(wrappedRecoveryKey),
+    site_recovery_slot: buildSiteRecoverySlot(siteRecoveryPublicKey, wrappedSiteRecoveryKey),
     metadata: normalizedDocument.metadata,
   }
 }
@@ -336,51 +331,11 @@ export async function decryptPrivatePost(
   return await decryptDocumentWithContentKey(normalizedBundle, cek)
 }
 
-export async function decryptPrivatePostWithRecoveryPhrase(
+export async function rewrapPrivatePostPasswordWithContentKey(
   bundle: EncryptedPrivatePostBundle,
-  mnemonic: string
-): Promise<DecryptedPrivatePostDocument> {
-  const recoveryKeyBytes = await deriveRecoveryKeyFromMnemonic(mnemonic)
-  const normalizedBundle = normalizeBundle(bundle)
-  validateSupportedBundle(normalizedBundle)
-
-  const cek = await unwrapContentKeyWithRecoveryKey(normalizedBundle, recoveryKeyBytes)
-  return await decryptDocumentWithContentKey(normalizedBundle, cek)
-}
-
-export async function rewrapPrivatePostPasswordWithKnownPassword(
-  bundle: EncryptedPrivatePostBundle,
-  currentPassword: string,
+  contentKeyBytes: Uint8Array,
   nextPassword: string
 ): Promise<EncryptedPrivatePostBundle> {
-  const normalizedBundle = normalizeBundle(bundle)
-  if (currentPassword.length === 0 || nextPassword.length === 0) {
-    throw new Error('访问密码不能为空')
-  }
-
-  validateSupportedBundle(normalizedBundle)
-
-  const cek = await unwrapContentKeyWithPassword(normalizedBundle, currentPassword)
-  const wrappedContentKey = await createPasswordWrappedContentKey(nextPassword, cek)
-
-  return {
-    ...normalizedBundle,
-    metadata: {
-      ...normalizedBundle.metadata,
-    },
-    recovery_slot: {
-      ...normalizedBundle.recovery_slot,
-    },
-    password_slot: buildPasswordSlotFromWrappedContentKey(wrappedContentKey),
-  }
-}
-
-export async function rewrapPrivatePostPasswordWithRecoveryPhrase(
-  bundle: EncryptedPrivatePostBundle,
-  mnemonic: string,
-  nextPassword: string
-): Promise<EncryptedPrivatePostBundle> {
-  const recoveryKeyBytes = await deriveRecoveryKeyFromMnemonic(mnemonic)
   const normalizedBundle = normalizeBundle(bundle)
   if (nextPassword.length === 0) {
     throw new Error('访问密码不能为空')
@@ -388,16 +343,15 @@ export async function rewrapPrivatePostPasswordWithRecoveryPhrase(
 
   validateSupportedBundle(normalizedBundle)
 
-  const cek = await unwrapContentKeyWithRecoveryKey(normalizedBundle, recoveryKeyBytes)
-  const wrappedContentKey = await createPasswordWrappedContentKey(nextPassword, cek)
+  const wrappedContentKey = await createPasswordWrappedContentKey(nextPassword, contentKeyBytes)
 
   return {
     ...normalizedBundle,
     metadata: {
       ...normalizedBundle.metadata,
     },
-    recovery_slot: {
-      ...normalizedBundle.recovery_slot,
+    site_recovery_slot: {
+      ...normalizedBundle.site_recovery_slot,
     },
     password_slot: buildPasswordSlotFromWrappedContentKey(wrappedContentKey),
   }
@@ -433,17 +387,15 @@ function normalizePasswordSlot(passwordSlot: unknown): PasswordSlot {
   }
 }
 
-function normalizeRecoverySlot(recoverySlot: unknown): RecoverySlot {
-  if (!isRecord(recoverySlot)) {
-    throw new Error('recovery_slot 缺失')
+function normalizeSiteRecoverySlot(siteRecoverySlot: unknown): SiteRecoverySlot {
+  if (!isRecord(siteRecoverySlot)) {
+    throw new Error('site_recovery_slot 缺失')
   }
 
   return {
-    scheme: readNonEmptyString(recoverySlot.scheme, 'recovery_slot.scheme'),
-    wrap_alg: readNonEmptyString(recoverySlot.wrap_alg, 'recovery_slot.wrap_alg'),
-    wrap_iv: readNonEmptyString(recoverySlot.wrap_iv, 'recovery_slot.wrap_iv'),
-    wrapped_cek: readNonEmptyString(recoverySlot.wrapped_cek, 'recovery_slot.wrapped_cek'),
-    auth_tag: readNonEmptyString(recoverySlot.auth_tag, 'recovery_slot.auth_tag'),
+    kid: readNonEmptyString(siteRecoverySlot.kid, 'site_recovery_slot.kid'),
+    alg: readNonEmptyString(siteRecoverySlot.alg, 'site_recovery_slot.alg'),
+    wrapped_cek: readNonEmptyString(siteRecoverySlot.wrapped_cek, 'site_recovery_slot.wrapped_cek'),
   }
 }
 
@@ -462,12 +414,8 @@ function validateSupportedBundle(bundle: EncryptedPrivatePostBundle): void {
     throw new Error('当前 bundle 的 password slot 算法不受支持')
   }
 
-  if (bundle.recovery_slot.scheme !== RECOVERY_MNEMONIC_SCHEME) {
-    throw new Error('当前 bundle 的 recovery slot 方案不受支持')
-  }
-
-  if (bundle.recovery_slot.wrap_alg !== RECOVERY_KEY_WRAP_ALGORITHM) {
-    throw new Error('当前 bundle 的 recovery slot 包裹算法不受支持')
+  if (bundle.site_recovery_slot.alg !== SITE_RECOVERY_WRAP_ALGORITHM) {
+    throw new Error('当前 bundle 的平台恢复算法不受支持')
   }
 }
 
@@ -507,43 +455,6 @@ async function unwrapContentKeyWithPassword(
     return new Uint8Array(plaintext)
   } catch {
     throw new Error('访问密码错误，或密文已损坏')
-  }
-}
-
-async function unwrapContentKeyWithRecoveryKey(
-  bundle: EncryptedPrivatePostBundle,
-  recoveryKeyBytes: Uint8Array
-): Promise<Uint8Array> {
-  const cryptoApi = globalThis.crypto?.subtle
-  if (!cryptoApi) {
-    throw new Error('当前环境不支持 Web Crypto API')
-  }
-
-  const recoveryKey = await cryptoApi.importKey(
-    'raw',
-    recoveryKeyBytes,
-    'AES-GCM',
-    false,
-    ['decrypt']
-  )
-  const wrapIv = hexToBytes(bundle.recovery_slot.wrap_iv)
-  const wrappedCek = hexToBytes(bundle.recovery_slot.wrapped_cek)
-  const authTag = hexToBytes(bundle.recovery_slot.auth_tag)
-
-  try {
-    const plaintext = await cryptoApi.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: wrapIv,
-        tagLength: AES_GCM_TAG_LENGTH,
-      },
-      recoveryKey,
-      joinBytes(wrappedCek, authTag)
-    )
-
-    return new Uint8Array(plaintext)
-  } catch {
-    throw new Error('恢复助记词错误，或恢复槽已损坏')
   }
 }
 
@@ -653,42 +564,43 @@ async function createPasswordWrappedContentKey(password: string, contentKeyBytes
   }
 }
 
-async function createRecoveryWrappedContentKey(
-  recoveryKeyBytes: Uint8Array,
+async function createSiteRecoveryWrappedContentKey(
+  siteRecoveryPublicKey: SiteRecoveryPublicKey,
   contentKeyBytes: Uint8Array
-): Promise<{
-  wrapIv: Uint8Array
-  wrappedContentKey: Uint8Array
-}> {
-  const cryptoObject = globalThis.crypto
-  const cryptoApi = cryptoObject?.subtle
-  if (!cryptoObject?.getRandomValues || !cryptoApi) {
+): Promise<Uint8Array> {
+  const cryptoApi = globalThis.crypto?.subtle
+  if (!cryptoApi) {
     throw new Error('当前环境不支持 Web Crypto API')
   }
 
-  const wrapIv = cryptoObject.getRandomValues(new Uint8Array(BUNDLE_IV_BYTES))
-  const recoveryKey = await cryptoApi.importKey(
-    'raw',
-    recoveryKeyBytes,
-    'AES-GCM',
-    false,
-    ['encrypt']
-  )
-  const wrappedContentKey = new Uint8Array(
-    await cryptoApi.encrypt(
+  let publicKey: CryptoKey
+  try {
+    publicKey = await cryptoApi.importKey(
+      'spki',
+      base64ToBytes(siteRecoveryPublicKey.publicKey),
       {
-        name: 'AES-GCM',
-        iv: wrapIv,
-        tagLength: AES_GCM_TAG_LENGTH,
+        name: 'RSA-OAEP',
+        hash: 'SHA-256',
       },
-      recoveryKey,
-      contentKeyBytes
+      false,
+      ['encrypt']
     )
-  )
+  } catch {
+    throw new Error('平台恢复公钥无效')
+  }
 
-  return {
-    wrapIv,
-    wrappedContentKey,
+  try {
+    return new Uint8Array(
+      await cryptoApi.encrypt(
+        {
+          name: 'RSA-OAEP',
+        },
+        publicKey,
+        contentKeyBytes
+      )
+    )
+  } catch {
+    throw new Error('生成 bundle 失败：平台恢复槽写入失败')
   }
 }
 
@@ -709,20 +621,39 @@ function buildPasswordSlotFromWrappedContentKey(args: {
   }
 }
 
-function buildRecoverySlotFromWrappedContentKey(args: {
-  wrapIv: Uint8Array
+function buildSiteRecoverySlot(
+  siteRecoveryPublicKey: SiteRecoveryPublicKey,
   wrappedContentKey: Uint8Array
-}): RecoverySlot {
-  const recoverySlotCiphertext = args.wrappedContentKey.slice(0, -AES_GCM_TAG_BYTES)
-  const recoverySlotAuthTag = args.wrappedContentKey.slice(-AES_GCM_TAG_BYTES)
-
+): SiteRecoverySlot {
   return {
-    scheme: RECOVERY_MNEMONIC_SCHEME,
-    wrap_alg: AES_GCM_ALGORITHM,
-    wrap_iv: bytesToHex(args.wrapIv),
-    wrapped_cek: bytesToHex(recoverySlotCiphertext),
-    auth_tag: bytesToHex(recoverySlotAuthTag),
+    kid: siteRecoveryPublicKey.kid,
+    alg: siteRecoveryPublicKey.alg,
+    wrapped_cek: bytesToHex(wrappedContentKey),
   }
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const normalized = value.trim()
+  if (!normalized) {
+    throw new Error('非法 base64 内容')
+  }
+
+  if (!globalThis.atob) {
+    throw new Error('当前环境不支持 base64 解码')
+  }
+
+  let binary: string
+  try {
+    binary = globalThis.atob(normalized)
+  } catch {
+    throw new Error('非法 base64 内容')
+  }
+
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes
 }
 
 function hexToBytes(value: string): Uint8Array {

@@ -4,13 +4,14 @@
 
 文章仍然是普通 `Post`，标题、slug、摘要等元数据继续公开；正文则以加密 bundle 的形式保存，并在读者浏览器内本地解密。
 
-当前实现基于 `EncryptedPrivatePostBundle v2` 信封加密：
+当前实现只支持 `EncryptedPrivatePostBundle v3`：
 
 - 随机生成内容密钥 `CEK`
 - 用 `CEK` 通过 `AES-256-GCM` 加密正文
 - 用 `password_slot` 通过 `scrypt + AES-GCM` 包裹同一个 `CEK`
-- 用 `recovery_slot` 通过恢复助记词派生出的恢复密钥包裹同一个 `CEK`
-- Halo 不保存访问密码，也不保存恢复助记词
+- 用 `site_recovery_slot` 通过站点恢复公钥包裹同一个 `CEK`
+- Halo 服务端不保存访问口令，但会保存站点恢复私钥
+- 阅读端公开交互始终只保留访问口令，不暴露恢复入口
 
 ## 当前形态
 
@@ -23,17 +24,7 @@
 - `PrivatePost` 资源名统一使用 `postName`；再次加锁前会先清理软删除残留，避免设置成功但列表和实际未生效
 - 原文章页正文区域会被替换成锁定态，读者可以在原页面内直接解锁
 - `/private-posts?slug=...` 仍保留为独立阅读页
-- `/console/private-posts` 负责初始化或导入恢复助记词，以及对已加密文章修改/重置访问口令
-
-## 当前状态
-
-当前版本更接近：
-
-- 自用 beta / RC
-- 主链路已经跑通
-- 还没有按“公开发布到应用市场”的标准完成整体验收
-
-当前主要剩余工作已经收敛到主题适配、安装文档和更大范围的兼容性回归，不再是主链路阻塞。
+- `/console/private-posts` 负责已加密文章的口令维护；当前只保留平台恢复能力后台重置
 
 ## 已实现能力
 
@@ -49,31 +40,29 @@
 
 ### 加密与解密
 
-- `EncryptedPrivatePostBundle v2` 解析、校验和渲染
+- `EncryptedPrivatePostBundle v3` 生成、解析、校验和渲染
 - Markdown 与 HTML 正文 payload 支持
 - 浏览器本地密码解锁
-- 浏览器本地恢复助记词恢复 `CEK`
-- 后台支持两条口令维护路径
-- 知道旧口令时直接重写 `password_slot`
-- 忘记旧口令时通过恢复助记词重写 `password_slot`
+- 后台通过平台恢复能力重写 `password_slot`
 - 页面隐藏、离开和空闲超时后的自动重锁
 
-### 恢复助记词
+### 平台恢复
 
-- 初始化时在浏览器本地生成随机恢复熵
-- 使用固定词表和校验规则编码为英文助记词
-- 用 `mnemonic -> entropy -> HKDF-SHA-256(info="halo-private-posts/recovery/v1")` 派生恢复密钥
-- 恢复助记词只显示一次，确认后仅把恢复状态保存在当前浏览器 `localStorage`
-- 加锁时自动写入单一 `recovery_slot`
-- 后台不显示恢复助记词，也不回显旧访问口令
+- 服务端自动生成并持久化站点恢复 RSA 密钥对
+- 前端加锁时只获取恢复公钥，不接触恢复私钥
+- 新文章加锁时自动写入 `site_recovery_slot`
+- 后台重置口令由服务端解开 `site_recovery_slot` 并重写 `password_slot`
+- 重置口令时会同时回写文章真实注解和 `PrivatePost` 镜像，避免状态分叉
+- 如果文章注解里的 bundle 只是占位数据、历史脏数据或结构不合法，后台不会再尝试恢复，而会直接要求重新加锁写入有效 bundle
 
 ### 前台与接口
 
 - `GET /private-posts?slug=...` 独立阅读页
 - `GET /private-posts/data?slug=...` 匿名 bundle 数据接口
-- 两个匿名阅读入口都返回 `Cache-Control: no-store`，避免旧 bundle 被缓存
+- `GET /apis/api.console.halo.run/v1alpha1/private-posts/site-recovery-key`
+- `POST /apis/api.console.halo.run/v1alpha1/private-posts/reset-password`
+- 匿名阅读入口都返回 `Cache-Control: no-store`，避免旧 bundle 被缓存
 - 默认锁定页模板 `private-post.html`
-- reader 静态资源通过插件 ReverseProxy 暴露到 `/plugins/halo-private-posts/assets/reader/*`
 
 ## 核心模型
 
@@ -95,26 +84,22 @@
 - `PrivatePost.metadata.name = postName`
 - `Post.metadata.annotations["privateposts.halo.run/bundle"]` 才是 bundle 真源
 - 软删除残留会在再次加锁、取消加锁和插件启动补扫时继续清理
+- 只有通过完整 `v3` 校验的 bundle 才会被视为“已加锁文章”；占位 bundle 和脏数据会被当成无效状态
 
-### 浏览器本地恢复状态
+### 恢复边界
 
-恢复状态保存在浏览器本地：
+当前恢复模型就是“平台托管恢复”：
 
-- 存储位置：`localStorage`
-- 用途：为新文章加锁时生成 `recovery_slot`，以及在忘记旧口令时恢复 `CEK`
-- 约束：服务端不保存恢复秘密，助记词不会再次显示
-
-## 同步与清理语义
-
-- 加锁时，前端会先把新 bundle 写入文章注解，再同步 upsert `PrivatePost`；如果镜像写入失败，会回滚注解，避免“设置里成功但实际未生效”
-- 取消加锁时，前端会先移除文章注解，再按 `postName` 最佳努力删除所有 `PrivatePost` 镜像；若镜像补删暂时失败，后台事件和启动补扫会继续清理
-- `PrivatePost` 查询和列表默认忽略带 `deletionTimestamp` 的软删除资源，避免历史残留影响再次加锁或后台状态显示
+- 服务端保存站点恢复私钥
+- 前端只使用站点恢复公钥写入 `site_recovery_slot`
+- 正常阅读仍然只能靠访问口令
+- 后台重置口令时不回显正文，也不把 `CEK` 暴露给浏览器
 
 ## 文档导航
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：当前实现的分层、数据流和边界
 - [docs/ROADMAP.md](docs/ROADMAP.md)：阶段性进度和后续计划
-- [docs/ZKVAULT_INTEGRATION.md](docs/ZKVAULT_INTEGRATION.md)：协议版本与边界说明
+- [docs/RECOVERY_MODES.md](docs/RECOVERY_MODES.md)：当前恢复模型
 - [docs/MAINTENANCE.md](docs/MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
 
 ## 开发要求
@@ -145,9 +130,6 @@ Gradle 会自动下载并使用 `Node.js 20.19.0` 构建 `ui/`，然后把产物
 ./gradlew reloadPlugin
 ```
 
-如果执行过 `./gradlew clean`，再做联调前建议先重建开发容器。当前 Halo devtools 会把本地 `build/`
-做成 bind mount；`clean` 删除并重建目录后，旧容器里的挂载会指向已经失效的旧 inode。
-
 单独验证前端：
 
 ```bash
@@ -164,38 +146,6 @@ npm run build
 - UI 类型检查：`cd ui && npm run type-check`
 - UI 单测：`cd ui && npm run test:unit`
 - 插件完整构建：`./gradlew build`
-- Halo 联调：`./gradlew createHaloContainer` 后再执行 `./gradlew reloadPlugin`
-
-## 主题接入
-
-插件的主路径是自动接管已配置私密正文的原文章页正文区域。
-
-如果主题还想显式补一个入口，可以继续链接到独立阅读页：
-
-```html
-<a th:href="@{/private-posts(slug=${privatePost.slug})}">阅读私密正文</a>
-```
-
-也可以通过 Finder 主动判断当前文章是否存在私密正文：
-
-```html
-<th:block th:with="privatePost=${haloPrivatePostFinder.getByPostName(post.metadata.name).block()}">
-  <th:block th:if="${privatePost != null}">
-    <a th:href="${privatePost.readerUrl}">阅读私密正文</a>
-  </th:block>
-</th:block>
-```
-
-因为 `slug` 允许包含 `/`，公开阅读页和公开 JSON 端点都使用查询参数 `slug`。
-
-## 仓库结构
-
-- [src/main/java/run/halo/privateposts](src/main/java/run/halo/privateposts)：插件主类、模型、同步、阅读页路由、Finder、主题处理器
-- [src/main/resources/plugin.yaml](src/main/resources/plugin.yaml)：插件清单
-- [src/main/resources/templates/private-post.html](src/main/resources/templates/private-post.html)：独立阅读页模板
-- [src/main/resources/extensions/post-annotation-setting.yaml](src/main/resources/extensions/post-annotation-setting.yaml)：文章设置里的私密正文工具
-- [src/main/resources/extensions/reverse-proxy-reader.yaml](src/main/resources/extensions/reverse-proxy-reader.yaml)：reader 资源代理
-- [ui](ui)：Halo Console UI、文章设置工具、reader 前端代码
 
 ## 当前不做的事情
 
@@ -203,13 +153,12 @@ npm run build
 - 支付或会员系统
 - 登录后阅读体系
 - 评论后阅读
-- 恢复秘密托管
-- 复杂的多成员密钥撤销、审计和生命周期管理
+- 多成员复杂密钥撤销、审计和生命周期管理
 
 ## 协议说明
 
-当前代码只支持 `EncryptedPrivatePostBundle v2`。
+当前代码只支持 `EncryptedPrivatePostBundle v3`。
 
-- 如需继续演进协议，应通过显式版本升级完成
+- `v3`：`password_slot + site_recovery_slot`
 
-详见 [docs/ZKVAULT_INTEGRATION.md](docs/ZKVAULT_INTEGRATION.md)。
+如需继续演进协议，应通过显式版本升级完成。

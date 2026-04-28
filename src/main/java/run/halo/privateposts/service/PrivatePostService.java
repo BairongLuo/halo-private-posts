@@ -22,7 +22,9 @@ import run.halo.app.extension.MetadataOperator;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.app.extension.index.query.Queries;
 import run.halo.privateposts.model.PrivatePost;
+import run.halo.privateposts.model.PrivatePostBundleValidator;
 import run.halo.privateposts.sync.PostPrivatePostSyncListener;
+import run.halo.privateposts.view.PrivatePostView;
 
 @Service
 public class PrivatePostService {
@@ -71,36 +73,67 @@ public class PrivatePostService {
         return getByPostName(postName).filterWhen(this::isPubliclyAccessible);
     }
 
+    public Mono<PrivatePostView> getPublicViewBySlug(String slug) {
+        if (!StringUtils.hasText(slug)) {
+            return Mono.empty();
+        }
+
+        return findPublicSourcePostBySlug(slug)
+            .flatMap(this::toPublicView);
+    }
+
+    public Mono<PrivatePostView> getPublicViewByPostName(String postName) {
+        if (!StringUtils.hasText(postName)) {
+            return Mono.empty();
+        }
+
+        return client.fetch(Post.class, postName)
+            .filter(PrivatePostService::isPubliclyAccessiblePrivatePostSource)
+            .flatMap(this::toPublicView)
+            .switchIfEmpty(Mono.defer(() -> getPubliclyAccessibleByPostName(postName).map(PrivatePostView::from)));
+    }
+
     public Mono<PrivatePost> upsert(PrivatePost privatePost) {
         return upsert(privatePost, UPSERT_RETRIES);
     }
 
     private Mono<PrivatePost> upsert(PrivatePost privatePost, int retriesLeft) {
         String postName = privatePost.getSpec().getPostName();
-        return Mono.defer(() -> getByPostName(postName)
+        return Mono.defer(() -> fetchCanonicalMapping(postName)
             .flatMap(existing -> {
+                if (isDeletedMapping(existing)) {
+                    return purgeDeletedTombstone(existing).then(Mono.empty());
+                }
+
                 privatePost.setMetadata(copyMetadata(existing.getMetadata()));
                 return client.update(privatePost);
             })
-            .switchIfEmpty(Mono.defer(() -> {
-                privatePost.setMetadata(createMetadata(postName));
-                return client.create(privatePost);
-            }))
+            .switchIfEmpty(Mono.defer(() -> getByPostName(postName)
+                .flatMap(existing -> {
+                    privatePost.setMetadata(copyMetadata(existing.getMetadata()));
+                    return client.update(privatePost);
+                })
+                .switchIfEmpty(Mono.defer(() -> {
+                    privatePost.setMetadata(createMetadata(postName));
+                    return client.create(privatePost);
+                }))))
             .onErrorResume(PrivatePostService::isRetryableWriteFailure, error -> {
                 if (retriesLeft <= 0) {
                     return Mono.error(error);
                 }
 
                 // Post save events can race with deletion/recreation/first-create of the same mapping.
-                privatePost.setMetadata(null);
-                return upsert(privatePost, retriesLeft - 1);
+                return purgeDeletedCanonicalMapping(postName)
+                    .then(Mono.fromRunnable(() -> privatePost.setMetadata(null)))
+                    .then(upsert(privatePost, retriesLeft - 1));
             }));
     }
 
     public Mono<Void> deleteByPostName(String postName) {
         return getByPostName(postName)
-            .flatMap(this::deleteDirectly)
-            .then();
+            .flatMap(privatePost -> deleteDirectly(privatePost).thenReturn(true))
+            .defaultIfEmpty(false)
+            .flatMap(deleted -> deleted ? Mono.empty() : purgeDeletedCanonicalMapping(postName));
     }
 
     public Mono<Integer> cleanupStaleMappings() {
@@ -252,8 +285,11 @@ public class PrivatePostService {
             return false;
         }
 
-        String bundleText = annotations.get(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION);
-        return StringUtils.hasText(bundleText);
+        PrivatePost.Bundle bundle = PostPrivatePostSyncListener.readBundleFromAnnotations(
+            metadata.getName(),
+            annotations
+        );
+        return bundle != null && PrivatePostBundleValidator.isValid(bundle);
     }
 
     static boolean isPubliclyAccessiblePrivatePostSource(Post post) {
@@ -261,6 +297,46 @@ public class PrivatePostService {
             && post.isPublished()
             && post.getSpec() != null
             && Post.isPublic(post.getSpec());
+    }
+
+    private Mono<Post> findPublicSourcePostBySlug(String slug) {
+        return client.listAll(
+                Post.class,
+                ListOptions.builder()
+                    .fieldQuery(Queries.equal("spec.slug", slug))
+                    .build(),
+                SOURCE_POST_SORT
+            )
+            .filter(PrivatePostService::isPubliclyAccessiblePrivatePostSource)
+            .next()
+            .switchIfEmpty(Mono.defer(() -> client.listAll(
+                    Post.class,
+                    ListOptions.builder().build(),
+                    SOURCE_POST_SORT
+                )
+                .filter(post -> post.getSpec() != null && slug.equals(post.getSpec().getSlug()))
+                .filter(PrivatePostService::isPubliclyAccessiblePrivatePostSource)
+                .next()))
+            .switchIfEmpty(Mono.defer(() -> getPubliclyAccessibleBySlug(slug)
+                .flatMap(privatePost -> client.fetch(Post.class, privatePost.getSpec().getPostName()))
+                .filter(PrivatePostService::isPubliclyAccessiblePrivatePostSource)));
+    }
+
+    private Mono<PrivatePostView> toPublicView(Post post) {
+        if (post == null || post.getMetadata() == null) {
+            return Mono.empty();
+        }
+
+        String postName = post.getMetadata().getName();
+        PrivatePost.Bundle bundle = PostPrivatePostSyncListener.readBundleFromAnnotations(
+            postName,
+            post.getMetadata().getAnnotations()
+        );
+        if (bundle == null) {
+            return Mono.empty();
+        }
+
+        return Mono.just(PrivatePostView.fromSourcePost(post, bundle));
     }
 
     private Mono<Void> deleteDirectly(PrivatePost privatePost) {
@@ -274,7 +350,9 @@ public class PrivatePostService {
         }
 
         Long version = privatePost.getMetadata().getVersion();
-        return Mono.defer(() -> client.delete(privatePost).then())
+        return Mono.defer(() -> client.delete(privatePost)
+                .flatMap(this::purgeDeletedTombstone)
+                .then())
             .onErrorResume(error -> {
                 if (!shouldFallbackToStoreDelete(error)) {
                     return Mono.error(error);
@@ -286,6 +364,15 @@ public class PrivatePostService {
 
     private static String storeName(String resourceName) {
         return PRIVATE_POST_STORE_PREFIX + resourceName;
+    }
+
+    private Mono<PrivatePost> fetchCanonicalMapping(String postName) {
+        if (!StringUtils.hasText(postName)) {
+            return Mono.empty();
+        }
+
+        Mono<PrivatePost> result = client.fetch(PrivatePost.class, postName);
+        return result == null ? Mono.empty() : result;
     }
 
     private Mono<PrivatePost> queryByField(String fieldName, String value) {
@@ -303,6 +390,23 @@ public class PrivatePostService {
         return error != null
             && "run.halo.app.extension.exception.SchemaViolationException"
             .equals(error.getClass().getName());
+    }
+
+    private Mono<Void> purgeDeletedCanonicalMapping(String postName) {
+        return fetchCanonicalMapping(postName)
+            .flatMap(this::purgeDeletedTombstone)
+            .then();
+    }
+
+    private Mono<Void> purgeDeletedTombstone(PrivatePost privatePost) {
+        if (!isDeletedMapping(privatePost)) {
+            return Mono.empty();
+        }
+
+        return deleteViaStoreFallback(
+            resourceName(privatePost),
+            privatePost.getMetadata().getVersion()
+        );
     }
 
     Mono<Void> deleteViaStoreFallback(String resourceName, Long version) {
@@ -422,6 +526,12 @@ public class PrivatePostService {
         copied.setDeletionTimestamp(metadata.getDeletionTimestamp());
         copied.setFinalizers(metadata.getFinalizers());
         return copied;
+    }
+
+    private static boolean isDeletedMapping(PrivatePost privatePost) {
+        return privatePost != null
+            && privatePost.getMetadata() != null
+            && privatePost.getMetadata().getDeletionTimestamp() != null;
     }
 
     private static boolean isRetryableWriteFailure(Throwable error) {

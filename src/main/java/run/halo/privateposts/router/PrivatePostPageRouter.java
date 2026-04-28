@@ -13,7 +13,6 @@ import org.springframework.web.reactive.function.server.ServerResponse;
 import org.springframework.web.util.UriUtils;
 import reactor.core.publisher.Mono;
 import run.halo.app.theme.TemplateNameResolver;
-import run.halo.privateposts.model.PrivatePost;
 import run.halo.privateposts.service.PrivatePostService;
 import run.halo.privateposts.view.PrivatePostView;
 
@@ -41,8 +40,7 @@ public class PrivatePostPageRouter {
         if (slug.isBlank()) {
             return ServerResponse.notFound().build();
         }
-        return privatePostService.getPubliclyAccessibleBySlug(slug)
-            .map(PrivatePostView::from)
+        return privatePostService.getPublicViewBySlug(slug)
             .flatMap(view -> ServerResponse.ok()
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -55,22 +53,22 @@ public class PrivatePostPageRouter {
         if (slug.isBlank()) {
             return ServerResponse.notFound().build();
         }
-        return privatePostService.getPubliclyAccessibleBySlug(slug)
-            .flatMap(privatePost -> renderTemplate(request, privatePost))
+        return privatePostService.getPublicViewBySlug(slug)
+            .flatMap(view -> renderTemplate(request, view))
             .switchIfEmpty(ServerResponse.notFound().build());
     }
 
-    private Mono<ServerResponse> renderTemplate(ServerRequest request, PrivatePost privatePost) {
+    private Mono<ServerResponse> renderTemplate(ServerRequest request, PrivatePostView view) {
         Map<String, Object> model = new HashMap<>();
-        model.put("title", privatePost.getSpec().getTitle());
-        model.put("excerpt", nullToEmpty(privatePost.getSpec().getExcerpt()));
-        model.put("slug", privatePost.getSpec().getSlug());
-        model.put("publishedAt", nullToEmpty(privatePost.getSpec().getPublishedAt()));
+        model.put("title", view.title());
+        model.put("excerpt", nullToEmpty(view.excerpt()));
+        model.put("slug", view.slug());
+        model.put("publishedAt", nullToEmpty(view.publishedAt()));
         model.put("idleTimeoutMs", 300000);
         model.put(
             "bundleApiPath",
             "/private-posts/data?slug="
-                + UriUtils.encode(privatePost.getSpec().getSlug(), "UTF-8")
+                + UriUtils.encode(view.slug(), "UTF-8")
         );
         return templateNameResolver.resolveTemplateNameOrDefault(
                 request.exchange(),
