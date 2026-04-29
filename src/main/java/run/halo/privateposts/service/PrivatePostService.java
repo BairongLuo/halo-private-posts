@@ -6,11 +6,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
@@ -32,10 +34,13 @@ public class PrivatePostService {
     private static final Sort SOURCE_POST_SORT = Sort.by(Sort.Order.asc("metadata.name"));
     private static final int UPSERT_RETRIES = 2;
     private static final String PRIVATE_POST_STORE_PREFIX = "/registry/privateposts.halo.run/privateposts/";
+    private static final String PRIVATE_POST_STORE_NAME_LIKE = PRIVATE_POST_STORE_PREFIX + "%";
     private static final Logger log = LoggerFactory.getLogger(PrivatePostService.class);
 
     private final ReactiveExtensionClient client;
     private volatile Object reflectedStoreClient;
+    private volatile Object reflectedEntityOperations;
+    private volatile DatabaseClient reflectedDatabaseClient;
 
     public PrivatePostService(ReactiveExtensionClient client) {
         this.client = client;
@@ -130,10 +135,16 @@ public class PrivatePostService {
     }
 
     public Mono<Void> deleteByPostName(String postName) {
+        return deleteByPostNameIfPresent(postName).then();
+    }
+
+    public Mono<Boolean> deleteByPostNameIfPresent(String postName) {
         return getByPostName(postName)
             .flatMap(privatePost -> deleteDirectly(privatePost).thenReturn(true))
             .defaultIfEmpty(false)
-            .flatMap(deleted -> deleted ? Mono.empty() : purgeDeletedCanonicalMapping(postName));
+            .flatMap(deleted -> deleted
+                ? Mono.just(true)
+                : forceDeleteCanonicalMappingIfPresent(postName));
     }
 
     public Mono<Integer> cleanupStaleMappings() {
@@ -235,6 +246,15 @@ public class PrivatePostService {
             .onErrorResume(error -> {
                 log.warn("Failed to list private post mappings during uninstall cleanup.", error);
                 return Mono.just(new DeleteAllMappingsResult(0, List.of("<list-private-posts>")));
+            });
+    }
+
+    public Mono<DeleteAllMappingsResult> hardDeleteAllMappingsBestEffort() {
+        return hardDeleteAllMappings()
+            .map(deletedCount -> new DeleteAllMappingsResult(deletedCount, List.of()))
+            .onErrorResume(error -> {
+                log.warn("Failed to hard-delete private post mappings during uninstall cleanup.", error);
+                return Mono.just(new DeleteAllMappingsResult(0, List.of("<hard-delete-private-posts>")));
             });
     }
 
@@ -349,17 +369,7 @@ public class PrivatePostService {
             return Mono.empty();
         }
 
-        Long version = privatePost.getMetadata().getVersion();
-        return Mono.defer(() -> client.delete(privatePost)
-                .flatMap(this::purgeDeletedTombstone)
-                .then())
-            .onErrorResume(error -> {
-                if (!shouldFallbackToStoreDelete(error)) {
-                    return Mono.error(error);
-                }
-
-                return deleteViaStoreFallback(resourceName, version);
-            });
+        return forceDeleteMapping(resourceName, resourceVersion(privatePost));
     }
 
     private static String storeName(String resourceName) {
@@ -386,10 +396,14 @@ public class PrivatePostService {
             .next();
     }
 
-    boolean shouldFallbackToStoreDelete(Throwable error) {
-        return error != null
-            && "run.halo.app.extension.exception.SchemaViolationException"
-            .equals(error.getClass().getName());
+    private Mono<Boolean> forceDeleteCanonicalMappingIfPresent(String postName) {
+        return fetchCanonicalMapping(postName)
+            .flatMap(privatePost -> forceDeleteMapping(
+                    resourceName(privatePost),
+                    resourceVersion(privatePost)
+                )
+                .thenReturn(true))
+            .defaultIfEmpty(false);
     }
 
     private Mono<Void> purgeDeletedCanonicalMapping(String postName) {
@@ -403,10 +417,37 @@ public class PrivatePostService {
             return Mono.empty();
         }
 
-        return deleteViaStoreFallback(
-            resourceName(privatePost),
-            privatePost.getMetadata().getVersion()
-        );
+        return forceDeleteMapping(resourceName(privatePost), resourceVersion(privatePost));
+    }
+
+    private Mono<Void> forceDeleteMapping(String resourceName, Long version) {
+        if (!StringUtils.hasText(resourceName)) {
+            return Mono.empty();
+        }
+
+        if (version == null) {
+            return retryDeleteViaStoreWithCurrentVersion(resourceName, null,
+                new IllegalStateException(
+                    "Cannot fallback-delete private post mapping without name and version."
+                ));
+        }
+
+        return deleteViaStoreFallback(resourceName, version)
+            .onErrorResume(error -> retryDeleteViaStoreWithCurrentVersion(resourceName, version, error));
+    }
+
+    private Mono<Void> retryDeleteViaStoreWithCurrentVersion(String resourceName,
+                                                             Long attemptedVersion,
+                                                             Throwable originalError) {
+        return fetchCanonicalMapping(resourceName)
+            .flatMap(current -> {
+                Long currentVersion = resourceVersion(current);
+                if (currentVersion == null || Objects.equals(currentVersion, attemptedVersion)) {
+                    return Mono.error(originalError);
+                }
+                return deleteViaStoreFallback(resourceName, currentVersion);
+            })
+            .switchIfEmpty(Mono.empty());
     }
 
     Mono<Void> deleteViaStoreFallback(String resourceName, Long version) {
@@ -441,6 +482,21 @@ public class PrivatePostService {
         });
     }
 
+    Mono<Integer> hardDeleteAllMappings() {
+        return Mono.defer(() -> {
+            try {
+                return resolveDatabaseClient()
+                    .sql("DELETE FROM extensions WHERE name LIKE :prefix")
+                    .bind("prefix", PRIVATE_POST_STORE_NAME_LIKE)
+                    .fetch()
+                    .rowsUpdated()
+                    .map(Math::toIntExact);
+            } catch (ReflectiveOperationException error) {
+                return Mono.error(error);
+            }
+        });
+    }
+
     private Object resolveStoreClient() throws ReflectiveOperationException {
         Object cached = reflectedStoreClient;
         if (cached != null) {
@@ -454,6 +510,38 @@ public class PrivatePostService {
 
         reflectedStoreClient = storeClient;
         return storeClient;
+    }
+
+    private Object resolveEntityOperations() throws ReflectiveOperationException {
+        Object cached = reflectedEntityOperations;
+        if (cached != null) {
+            return cached;
+        }
+
+        Object entityOperations = findFieldValue(resolveStoreClient(), "entityOperations");
+        if (entityOperations == null) {
+            throw new NoSuchFieldException("entityOperations");
+        }
+
+        reflectedEntityOperations = entityOperations;
+        return entityOperations;
+    }
+
+    private DatabaseClient resolveDatabaseClient() throws ReflectiveOperationException {
+        DatabaseClient cached = reflectedDatabaseClient;
+        if (cached != null) {
+            return cached;
+        }
+
+        Object entityOperations = resolveEntityOperations();
+        Method getDatabaseClientMethod = entityOperations.getClass().getMethod("getDatabaseClient");
+        Object databaseClient = getDatabaseClientMethod.invoke(entityOperations);
+        if (!(databaseClient instanceof DatabaseClient castedDatabaseClient)) {
+            throw new IllegalStateException("Unexpected return type from R2dbcEntityOperations.getDatabaseClient");
+        }
+
+        reflectedDatabaseClient = castedDatabaseClient;
+        return castedDatabaseClient;
     }
 
     private static Object findStoreDeleteTarget(Object source) throws ReflectiveOperationException {
@@ -475,6 +563,21 @@ public class PrivatePostService {
                 }
             }
             current = current.getSuperclass();
+        }
+
+        return null;
+    }
+
+    private static Object findFieldValue(Object source, String fieldName) throws ReflectiveOperationException {
+        Class<?> current = source.getClass();
+        while (current != null) {
+            try {
+                Field field = current.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return field.get(source);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
         }
 
         return null;
@@ -537,6 +640,12 @@ public class PrivatePostService {
     private static boolean isRetryableWriteFailure(Throwable error) {
         return error instanceof OptimisticLockingFailureException
             || error instanceof DuplicateKeyException;
+    }
+
+    private static Long resourceVersion(PrivatePost privatePost) {
+        return privatePost == null || privatePost.getMetadata() == null
+            ? null
+            : privatePost.getMetadata().getVersion();
     }
 
     private static String resourceName(PrivatePost privatePost) {

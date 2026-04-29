@@ -42,6 +42,13 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 21
 }
 
+tasks.named('processResources') {
+    inputs.property('pluginVersion', project.version)
+    filesMatching('plugin.yaml') {
+        expand(pluginVersion: project.version)
+    }
+}
+
 node {
     version = uiNodeVersion
     npmVersion = uiNpmVersion
@@ -76,6 +83,11 @@ tasks.register('installPlaywrightUi', NpmTask) {
 
 tasks.register('testE2eUi', NpmTask) {
     args = ['run', 'test:e2e']
+    dependsOn tasks.named('installPlaywrightUi')
+}
+
+tasks.register('testE2eUiUninstallSmoke', NpmTask) {
+    args = ['run', 'test:e2e:uninstall']
     dependsOn tasks.named('installPlaywrightUi')
 }
 

@@ -40,26 +40,25 @@ class PrivatePostServiceTest {
     @Test
     void cleanupStaleMappingsShouldDeleteMissingSourcePosts() {
         ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
-        PrivatePostService service = new PrivatePostService(client);
+        PrivatePostService service = spy(new PrivatePostService(client));
         PrivatePost mapping = privatePost("stale-post");
 
         when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(Flux.just(mapping));
         when(client.fetch(Post.class, "stale-post"))
             .thenReturn(Mono.empty());
-        when(client.delete(mapping))
-            .thenReturn(Mono.just(mapping));
+        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("stale-post", 7L);
 
         Integer deletedCount = service.cleanupStaleMappings().block();
 
         assertThat(deletedCount).isEqualTo(1);
-        verify(client).delete(mapping);
+        verify(service).deleteViaStoreFallback("stale-post", 7L);
     }
 
     @Test
     void cleanupStaleMappingsShouldDeleteRecycledSourcePosts() {
         ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
-        PrivatePostService service = new PrivatePostService(client);
+        PrivatePostService service = spy(new PrivatePostService(client));
         PrivatePost mapping = privatePost("recycled-post");
         Post recycledPost = post("recycled-post", Map.of(), true, false, false, Post.VisibleEnum.PUBLIC);
 
@@ -67,13 +66,12 @@ class PrivatePostServiceTest {
             .thenReturn(Flux.just(mapping));
         when(client.fetch(Post.class, "recycled-post"))
             .thenReturn(Mono.just(recycledPost));
-        when(client.delete(mapping))
-            .thenReturn(Mono.just(mapping));
+        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("recycled-post", 7L);
 
         Integer deletedCount = service.cleanupStaleMappings().block();
 
         assertThat(deletedCount).isEqualTo(1);
-        verify(client).delete(mapping);
+        verify(service).deleteViaStoreFallback("recycled-post", 7L);
     }
 
     @Test
@@ -103,26 +101,6 @@ class PrivatePostServiceTest {
     }
 
     @Test
-    void deleteByPostNameShouldFallbackWhenSchemaValidationBlocksDelete() {
-        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
-        PrivatePostService service = spy(new PrivatePostService(client));
-        PrivatePost mapping = privatePost("invalid-post");
-
-        when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
-            .thenReturn(Flux.just(mapping));
-        when(client.fetch(PrivatePost.class, "invalid-post"))
-            .thenReturn(Mono.just(mapping));
-        when(client.delete(mapping))
-            .thenReturn(Mono.error(new RuntimeException("schema blocked delete")));
-        doReturn(true).when(service).shouldFallbackToStoreDelete(any());
-        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("invalid-post", 7L);
-
-        service.deleteByPostName("invalid-post").block();
-
-        verify(service).deleteViaStoreFallback("invalid-post", 7L);
-    }
-
-    @Test
     void deleteByPostNameShouldPurgeDeletedCanonicalMappingWhenActiveQueryMisses() {
         ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
         PrivatePostService service = spy(new PrivatePostService(client));
@@ -137,6 +115,42 @@ class PrivatePostServiceTest {
         service.deleteByPostName("deleted-post").block();
 
         verify(service).deleteViaStoreFallback("deleted-post", 11L);
+    }
+
+    @Test
+    void deleteByPostNameShouldPurgeDeletedCanonicalMappingAfterDirectDelete() {
+        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
+        PrivatePostService service = spy(new PrivatePostService(client));
+        PrivatePost activeMapping = privatePost("active-post");
+
+        when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
+            .thenReturn(Flux.just(activeMapping));
+        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("active-post", 7L);
+
+        service.deleteByPostName("active-post").block();
+
+        verify(service).deleteViaStoreFallback("active-post", 7L);
+    }
+
+    @Test
+    void deleteByPostNameShouldRetryStoreDeleteWithCurrentCanonicalVersionAfterDelete() {
+        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
+        PrivatePostService service = spy(new PrivatePostService(client));
+        PrivatePost activeMapping = privatePost("active-post");
+        PrivatePost deletedMapping = deletedPrivatePost("active-post", 8L);
+        RuntimeException staleVersion = new RuntimeException("stale version");
+
+        when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
+            .thenReturn(Flux.just(activeMapping));
+        when(client.fetch(PrivatePost.class, "active-post"))
+            .thenReturn(Mono.just(deletedMapping));
+        doReturn(Mono.error(staleVersion)).when(service).deleteViaStoreFallback("active-post", 7L);
+        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("active-post", 8L);
+
+        service.deleteByPostName("active-post").block();
+
+        verify(service).deleteViaStoreFallback("active-post", 7L);
+        verify(service).deleteViaStoreFallback("active-post", 8L);
     }
 
     @Test
@@ -195,22 +209,51 @@ class PrivatePostServiceTest {
     @Test
     void deleteAllMappingsBestEffortShouldContinueAfterFailures() {
         ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
-        PrivatePostService service = new PrivatePostService(client);
+        PrivatePostService service = spy(new PrivatePostService(client));
         PrivatePost deletable = privatePost("deletable-post");
         PrivatePost broken = privatePost("broken-post");
 
         when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(Flux.just(deletable, broken));
-        when(client.delete(deletable))
-            .thenReturn(Mono.just(deletable));
-        when(client.delete(broken))
-            .thenReturn(Mono.error(new RuntimeException("delete failed")));
+        when(client.fetch(PrivatePost.class, "broken-post"))
+            .thenReturn(Mono.just(broken));
+        doReturn(Mono.empty()).when(service).deleteViaStoreFallback("deletable-post", 7L);
+        doReturn(Mono.error(new RuntimeException("delete failed")))
+            .when(service).deleteViaStoreFallback("broken-post", 7L);
 
         PrivatePostService.DeleteAllMappingsResult result = service.deleteAllMappingsBestEffort()
             .block();
 
         assertThat(result.deletedCount()).isEqualTo(1);
         assertThat(result.failedResourceNames()).containsExactly("broken-post");
+    }
+
+    @Test
+    void hardDeleteAllMappingsBestEffortShouldExposeDeletedCount() {
+        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
+        PrivatePostService service = spy(new PrivatePostService(client));
+
+        doReturn(Mono.just(2)).when(service).hardDeleteAllMappings();
+
+        PrivatePostService.DeleteAllMappingsResult result = service.hardDeleteAllMappingsBestEffort()
+            .block();
+
+        assertThat(result.deletedCount()).isEqualTo(2);
+        assertThat(result.failedResourceNames()).isEmpty();
+    }
+
+    @Test
+    void hardDeleteAllMappingsBestEffortShouldReportFailures() {
+        ReactiveExtensionClient client = mock(ReactiveExtensionClient.class);
+        PrivatePostService service = spy(new PrivatePostService(client));
+
+        doReturn(Mono.error(new RuntimeException("delete failed"))).when(service).hardDeleteAllMappings();
+
+        PrivatePostService.DeleteAllMappingsResult result = service.hardDeleteAllMappingsBestEffort()
+            .block();
+
+        assertThat(result.deletedCount()).isZero();
+        assertThat(result.failedResourceNames()).containsExactly("<hard-delete-private-posts>");
     }
 
     @Test

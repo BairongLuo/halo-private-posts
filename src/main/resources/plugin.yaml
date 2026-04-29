@@ -3,6 +3,7 @@ kind: Plugin
 metadata:
   name: halo-private-posts
 spec:
+  version: "${pluginVersion}"
   enabled: true
   requires: ">=2.24.0"
   author:

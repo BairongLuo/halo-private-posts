@@ -33,8 +33,8 @@ public class PluginUninstallCleanupService {
 
     public CleanupSummary cleanup() {
         PostAnnotationCleanupResult postCleanup = clearPostBundleAnnotations();
-        PrivatePostService.DeleteAllMappingsResult mappingCleanup = privatePostService
-            .deleteAllMappingsBestEffort()
+        PrivatePostService.DeleteAllMappingsResult sweepCleanup = privatePostService
+            .hardDeleteAllMappingsBestEffort()
             .blockOptional()
             .orElseGet(() -> new PrivatePostService.DeleteAllMappingsResult(
                 0,
@@ -42,9 +42,9 @@ public class PluginUninstallCleanupService {
             ));
         return new CleanupSummary(
             postCleanup.unlockedPosts(),
-            mappingCleanup.deletedCount(),
+            sweepCleanup.deletedCount(),
             postCleanup.failedPostNames(),
-            mappingCleanup.failedResourceNames()
+            sweepCleanup.failedResourceNames()
         );
     }
 
@@ -71,7 +71,10 @@ public class PluginUninstallCleanupService {
             failedPostNames.add("<list-posts>");
             log.warn("Failed to list posts during uninstall cleanup.", error);
         }
-        return new PostAnnotationCleanupResult(updatedPosts, List.copyOf(failedPostNames));
+        return new PostAnnotationCleanupResult(
+            updatedPosts,
+            List.copyOf(failedPostNames)
+        );
     }
 
     private static boolean removeBundleAnnotation(Post post) {
@@ -126,7 +129,8 @@ public class PluginUninstallCleanupService {
         return post.getMetadata().getName();
     }
 
-    private record PostAnnotationCleanupResult(int unlockedPosts, List<String> failedPostNames) {
+    private record PostAnnotationCleanupResult(int unlockedPosts,
+                                               List<String> failedPostNames) {
     }
 
     public record CleanupSummary(int unlockedPosts,

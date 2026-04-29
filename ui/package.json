@@ -12,7 +12,8 @@
     "build:reader": "vite build --config reader.vite.config.ts",
     "dev": "vite build --watch --mode=development",
     "playwright:install": "playwright install chromium",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --grep-invert @destructive",
+    "test:e2e:uninstall": "playwright test --grep @destructive",
     "test:unit": "vitest --config vitest.config.ts --run",
     "type-check": "vue-tsc --build"
   },

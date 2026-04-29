@@ -49,7 +49,7 @@ RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 ./gradlew testE2eUi
 ```
 
-如果想把开发容器 smoke、前端回归、登录态恢复和独立阅读页 e2e 一次跑完，直接使用：
+如果想把开发容器 smoke、前端回归、登录态恢复、独立阅读页 e2e 和卸载演练一次跑完，直接使用：
 
 ```bash
 ./scripts/dev-container-acceptance.sh
@@ -59,11 +59,19 @@ RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 
 - `./scripts/dev-container-smoke.sh`
 - `./gradlew testE2eUi`
+- `./scripts/dev-container-uninstall-smoke.sh`
 
 其中 `testE2eUi` 当前覆盖两条主链路：
 
 - 后台登录后，通过平台恢复能力重置已加锁文章的访问口令
 - 访问公开的 `/private-posts?slug=...` 独立阅读页，并验证错误口令失败、正确口令解锁成功
+
+`dev-container-uninstall-smoke.sh` 会额外执行一条破坏性演练：
+
+- 先创建一篇真实已加锁文章
+- 删除开发容器里的插件资源，验证卸载前已经移除文章注解
+- 检查 Halo 日志中没有 `Completed uninstall cleanup ... with failures` 和 `Scheme not found for privateposts.halo.run/v1alpha1/PrivatePost`
+- 最后重启开发容器，让挂载目录中的开发插件自动重新装回
 
 默认会使用：
 

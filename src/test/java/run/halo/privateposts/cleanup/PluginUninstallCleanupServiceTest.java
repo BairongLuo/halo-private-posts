@@ -34,7 +34,7 @@ class PluginUninstallCleanupServiceTest {
 
         when(client.listAll(eq(Post.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(java.util.List.of(encryptedPost, plainPost));
-        when(privatePostService.deleteAllMappingsBestEffort())
+        when(privatePostService.hardDeleteAllMappingsBestEffort())
             .thenReturn(reactor.core.publisher.Mono.just(
                 new PrivatePostService.DeleteAllMappingsResult(1, java.util.List.of())
             ));
@@ -51,7 +51,7 @@ class PluginUninstallCleanupServiceTest {
         assertThat(updatedPostCaptor.getValue().getMetadata().getAnnotations())
             .containsEntry("keep", "value")
             .doesNotContainKey(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION);
-        verify(privatePostService).deleteAllMappingsBestEffort();
+        verify(privatePostService).hardDeleteAllMappingsBestEffort();
     }
 
     @Test
@@ -68,15 +68,16 @@ class PluginUninstallCleanupServiceTest {
 
         when(client.listAll(eq(Post.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(java.util.List.of(brokenPost, okPost));
-        when(privatePostService.deleteAllMappingsBestEffort())
+        when(privatePostService.hardDeleteAllMappingsBestEffort())
             .thenReturn(reactor.core.publisher.Mono.just(
-                new PrivatePostService.DeleteAllMappingsResult(0, java.util.List.of("broken-mapping"))
+                new PrivatePostService.DeleteAllMappingsResult(1, java.util.List.of("broken-mapping"))
             ));
         doThrow(new RuntimeException("update failed")).when(client).update(brokenPost);
 
         PluginUninstallCleanupService.CleanupSummary summary = service.cleanup();
 
         assertThat(summary.unlockedPosts()).isEqualTo(1);
+        assertThat(summary.deletedPrivatePosts()).isEqualTo(1);
         assertThat(summary.failedPostNames()).containsExactly("broken-post");
         assertThat(summary.failedPrivatePostNames()).containsExactly("broken-mapping");
     }
