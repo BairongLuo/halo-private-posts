@@ -11,6 +11,7 @@ const STANDALONE_BACKDROP_SELECTOR = '[data-hpp-standalone-backdrop]'
 const STANDALONE_CLOSE_SELECTOR = '[data-hpp-standalone-close]'
 const STANDALONE_STYLE_ID = 'hpp-standalone-shell-style'
 const TOOL_ENTRY_LABEL = '文章加密'
+const AUTO_OPEN_QUERY_KEY = 'hppOpenEncryption'
 const EDITOR_ENTRY_ANCHOR_LABELS = [
   ['Add Cover', '添加封面'],
   ['Publish', '发布'],
@@ -105,6 +106,11 @@ export function syncPrivatePostEditorEntry(): void {
     || reusableEntry.previousElementSibling !== anchorElement
   ) {
     anchorElement.insertAdjacentElement('afterend', reusableEntry)
+  }
+
+  if (shouldAutoOpenEncryptionPanel()) {
+    clearAutoOpenEncryptionFlag()
+    void openPrivatePostAnnotationTool()
   }
 }
 
@@ -524,4 +530,14 @@ function hideElementBlock(element: HTMLElement): void {
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function shouldAutoOpenEncryptionPanel(): boolean {
+  return new URLSearchParams(window.location.search).get(AUTO_OPEN_QUERY_KEY) === '1'
+}
+
+function clearAutoOpenEncryptionFlag(): void {
+  const nextUrl = new URL(window.location.href)
+  nextUrl.searchParams.delete(AUTO_OPEN_QUERY_KEY)
+  window.history.replaceState(window.history.state, '', nextUrl.toString())
 }

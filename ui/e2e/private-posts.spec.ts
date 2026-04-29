@@ -21,6 +21,46 @@ import {
 } from './support/private-posts-testkit'
 
 test.describe('Halo Private Posts e2e', () => {
+  test('shows the encryption entry in the posts list menu and opens the standalone editor panel', async ({ page, request }) => {
+    test.slow()
+
+    let seededPrivatePost: SeededPrivatePost | null = null
+
+    try {
+      seededPrivatePost = await seedPrivatePost(request, {
+        body: `Menu secret body ${randomUUID().slice(0, 8)}`,
+      })
+
+      await loginToConsole(page)
+      await openPostsListPage(page)
+
+      const row = page.getByRole('row', {
+        name: new RegExp(`${escapeRegExp(seededPrivatePost.title)}[\\s\\S]*已加锁`),
+      })
+      await expect(row).toBeVisible()
+
+      await row.locator('.entity-dropdown-trigger').click()
+
+      const operationItem = page.getByText('文章加密', { exact: true })
+      await expect(operationItem).toBeVisible()
+
+      await Promise.all([
+        page.waitForURL(
+          new RegExp(`/console/posts/editor\\?name=${escapeRegExp(seededPrivatePost.name)}(?:$|&)`)
+        ),
+        operationItem.click(),
+      ])
+
+      await expect(page).not.toHaveURL(/hppOpenEncryption=/)
+      await expect(page.locator('[data-hpp-standalone-shell]')).toBeVisible()
+      await expect(page.locator('[data-hpp-standalone-content]')).toBeVisible()
+    } finally {
+      if (seededPrivatePost) {
+        await cleanupSeededPrivatePost(request, seededPrivatePost.name)
+      }
+    }
+  })
+
   test('logs in as console admin and resets a seeded private post password', async ({ page, request }) => {
     test.slow()
 
@@ -154,6 +194,11 @@ async function openPrivatePostsPage(page: Page): Promise<void> {
   await expect(page.getByText('这是临时保留的后台恢复页')).toBeVisible()
 }
 
+async function openPostsListPage(page: Page): Promise<void> {
+  await page.goto('/console/posts')
+  await expect(page).toHaveURL(/\/console\/posts(?:\?|$)/)
+}
+
 function hasBundleChanged(
   nextBundle: EncryptedPrivatePostBundle,
   previousBundle: EncryptedPrivatePostBundle
@@ -179,6 +224,10 @@ function sortRecursively(value: unknown): unknown {
     .map(([key, nestedValue]) => [key, sortRecursively(nestedValue)])
 
   return Object.fromEntries(entries)
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function delay(durationMs: number): Promise<void> {

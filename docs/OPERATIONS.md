@@ -22,7 +22,8 @@
 2. 准备插件包 `build/libs/halo-private-posts-<version>.jar`。
 3. 在 Halo 后台安装并启用插件。
 4. 启用后确认以下入口可见：
-   - 文章编辑页顶部与 `Settings` 同级的“文章加密”入口
+   - 文章列表三点菜单中与“设置”同级的“文章加密”入口
+   - 文章编辑页顶部的“文章加密”入口
    - 前台 `/private-posts?slug=...`
    - 如需演练平台恢复，可直达隐藏后台页 `/console/private-posts`
 5. 首次使用平台恢复能力时，插件会在服务端创建 Secret `halo-private-posts-site-recovery`。这个 Secret 是平台恢复根能力的一部分，必须纳入备份和访问控制。

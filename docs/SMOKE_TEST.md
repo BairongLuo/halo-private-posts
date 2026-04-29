@@ -61,8 +61,9 @@ RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 - `./gradlew testE2eUi`
 - `./scripts/dev-container-uninstall-smoke.sh`
 
-其中 `testE2eUi` 当前覆盖两条主链路：
+其中 `testE2eUi` 当前覆盖三条主链路：
 
+- 后台登录后，在文章列表三点菜单中看到“文章加密”入口，并跳转到编辑页自动打开独立面板
 - 后台登录后，通过平台恢复能力重置已加锁文章的访问口令
 - 访问公开的 `/private-posts?slug=...` 独立阅读页，并验证错误口令失败、正确口令解锁成功
 
@@ -94,7 +95,7 @@ RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 ## 检查清单
 
 1. 安装并启用插件。
-   预期：文章编辑页顶部出现与 `Settings` 同级的“文章加密”入口；点击后直接打开独立面板，而不是进入 `Settings` 子级。后台菜单不再额外暴露私密文章页面。
+   预期：文章列表三点菜单中出现与“设置”同级的“文章加密”入口；点击后跳到对应文章编辑页并直接打开独立面板。编辑页顶部也应可见“文章加密”入口。后台菜单不再额外暴露私密文章页面。
 
 2. 新建一篇公开文章并保存正文。
    预期：未加锁时原文章页仍是普通正文。
