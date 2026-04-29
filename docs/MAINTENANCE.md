@@ -24,13 +24,13 @@
 
 `src/main/java/run/halo/privateposts/sync/PostPrivatePostSyncListener.java` 负责把文章注解同步成 `PrivatePost`。它现在只接受 `v3 + site_recovery_slot`。如果这里回退，后台列表、阅读接口和启动补扫都会偏掉。
 
-`src/main/java/run/halo/privateposts/model/PrivatePostBundleValidator.java` 是现在的 bundle 真正入口校验器。它不只检查字段是否存在，还会检查：
+`src/main/java/run/halo/privateposts/model/PrivatePostBundleValidator.java` 是同步链路和公开读取链路的入口校验器。它不只检查字段是否存在，还会检查：
 
 - `v3` 版本是否正确
 - `payload_format / cipher / kdf / site_recovery_slot.alg` 是否属于当前支持集合
 - `data_iv / auth_tag / password_slot / site_recovery_slot.wrapped_cek` 的 hex 长度是否符合当前协议
 
-这意味着以前那种测试占位数据、历史手工脏数据、或者只长得像 bundle 但长度明显不可能的假数据，都会被判定为无效，不会再进入同步、阅读或平台恢复链路。
+这意味着以前那种测试占位数据、历史手工脏数据、或者只长得像 bundle 但长度明显不可能的假数据，都会被判定为无效，不会再进入同步、阅读或平台恢复链路。后台平台恢复路由也执行同一套 `v3` 规则，只是把校验逻辑收在 router 本地，避免 Halo 开发容器热重载时共享 validator 再次类加载失败。
 
 ## 平台恢复链路
 

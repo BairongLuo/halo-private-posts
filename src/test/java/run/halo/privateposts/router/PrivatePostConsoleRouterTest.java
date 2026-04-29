@@ -212,7 +212,88 @@ class PrivatePostConsoleRouterTest {
             .exchange()
             .expectStatus().isBadRequest()
             .expectBody()
-            .jsonPath("$.message").isEqualTo("当前文章还没有有效的私密正文 bundle，请重新加锁后再使用平台恢复");
+            .jsonPath("$.message").isEqualTo("当前文章的私密正文 bundle 无效，请重新加锁后再使用平台恢复");
+    }
+
+    @Test
+    void shouldRejectBundleWithoutSiteRecoverySlot() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePostWithBundleText(
+            "demo-post",
+            """
+                {"version":3,"payload_format":"markdown","cipher":"aes-256-gcm","kdf":"envelope",
+                "data_iv":"00112233445566778899aabb",
+                "ciphertext":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+                "auth_tag":"00112233445566778899aabbccddeeff",
+                "password_slot":{"kdf":"scrypt","salt":"00112233445566778899aabbccddeeff",
+                "wrap_iv":"00112233445566778899aabb","wrapped_cek":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+                "auth_tag":"00112233445566778899aabbccddeeff"},
+                "metadata":{"slug":"demo-post-slug","title":"Demo Post"}}
+                """.trim()
+        );
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/reset-password")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "nextPassword", "NextPass#2026"
+            ))
+            .exchange()
+            .expectStatus().isBadRequest()
+            .expectBody()
+            .jsonPath("$.message").isEqualTo("当前文章还没有平台恢复槽，不能直接后台重置口令");
+    }
+
+    @Test
+    void shouldRejectBundleWithInvalidSiteRecoverySlot() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePostWithBundleText(
+            "demo-post",
+            """
+                {"version":3,"payload_format":"markdown","cipher":"aes-256-gcm","kdf":"envelope",
+                "data_iv":"00112233445566778899aabb",
+                "ciphertext":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+                "auth_tag":"00112233445566778899aabbccddeeff",
+                "password_slot":{"kdf":"scrypt","salt":"00112233445566778899aabbccddeeff",
+                "wrap_iv":"00112233445566778899aabb","wrapped_cek":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+                "auth_tag":"00112233445566778899aabbccddeeff"},
+                "site_recovery_slot":{"kid":"site-recovery-rsa-oaep-sha256-v1","alg":"RSA-OAEP-256","wrapped_cek":"11223344"},
+                "metadata":{"slug":"demo-post-slug","title":"Demo Post"}}
+                """.trim()
+        );
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/reset-password")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "nextPassword", "NextPass#2026"
+            ))
+            .exchange()
+            .expectStatus().isBadRequest()
+            .expectBody()
+            .jsonPath("$.message").isEqualTo("当前文章的私密正文 bundle 无效，请重新加锁后再使用平台恢复");
     }
 
     @Test

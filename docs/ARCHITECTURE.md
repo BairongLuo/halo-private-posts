@@ -67,7 +67,7 @@
 - `metadata.name = spec.postName`
 - `Post.metadata.annotations["privateposts.halo.run/bundle"]` 才是正文 bundle 真源
 - 软删除中的 `PrivatePost` 只作为待清理残留存在，不参与正常读取与列表状态
-- 只有通过 `PrivatePostBundleValidator` 的 bundle 才会进入同步、公开读取和平台恢复链路
+- 只有通过当前 `v3` 校验的 bundle 才会进入同步、公开读取和平台恢复链路
 
 ### 站点恢复密钥
 
@@ -136,6 +136,7 @@
 7. 正文密文和 `site_recovery_slot` 保持不变
 
 如果第 1 步读到的源文章 bundle 没通过当前 `v3` 校验，流程会在进入解包前直接终止，并明确要求重新加锁；不会再拿无效占位数据去尝试恢复。
+当前同步和公开读取仍通过 `PrivatePostBundleValidator` 过滤，后台恢复路由则在本地执行等价校验，避免 Halo 开发容器热重载时出现共享 validator 类加载失败。
 
 ### 取消加锁与镜像清理流
 

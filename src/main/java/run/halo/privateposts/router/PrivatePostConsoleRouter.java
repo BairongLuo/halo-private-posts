@@ -4,9 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +14,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
+import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
@@ -27,18 +28,31 @@ import run.halo.app.extension.Metadata;
 import run.halo.app.extension.MetadataOperator;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.privateposts.model.PrivatePost;
-import run.halo.privateposts.model.PrivatePostBundleValidator;
 import run.halo.privateposts.service.PasswordSlotCryptoService;
 import run.halo.privateposts.service.PrivatePostService;
 import run.halo.privateposts.service.SiteRecoveryKeyService;
-import run.halo.privateposts.sync.PostPrivatePostSyncListener;
 
 @Configuration(proxyBeanMethods = false)
 public class PrivatePostConsoleRouter implements CustomEndpoint {
     private static final GroupVersion API_VERSION = new GroupVersion("api.console.halo.run", "v1alpha1");
+    private static final String PRIVATE_POST_BUNDLE_ANNOTATION = "privateposts.halo.run/bundle";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
         .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         .findAndRegisterModules();
+    private static final int BUNDLE_VERSION = 3;
+    private static final String PAYLOAD_FORMAT_MARKDOWN = "markdown";
+    private static final String PAYLOAD_FORMAT_HTML = "html";
+    private static final String BUNDLE_CIPHER = "aes-256-gcm";
+    private static final String BUNDLE_KDF = "envelope";
+    private static final String PASSWORD_SLOT_KDF = "scrypt";
+    private static final String SITE_RECOVERY_KID = "site-recovery-rsa-oaep-sha256-v1";
+    private static final String SITE_RECOVERY_ALGORITHM = "RSA-OAEP-256";
+    private static final int AES_GCM_IV_BYTES = 12;
+    private static final int AES_GCM_AUTH_TAG_BYTES = 16;
+    private static final int PASSWORD_SLOT_SALT_BYTES = 16;
+    private static final int CONTENT_KEY_BYTES = 32;
+    private static final int SITE_RECOVERY_WRAPPED_CEK_BYTES = 384;
+    private static final int MIN_CONTENT_CIPHERTEXT_BYTES = 16;
 
     private final SiteRecoveryKeyService siteRecoveryKeyService;
     private final PasswordSlotCryptoService passwordSlotCryptoService;
@@ -93,23 +107,22 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
                 return client.fetch(Post.class, body.postName())
                     .switchIfEmpty(Mono.error(new IllegalArgumentException("未找到对应的源文章")))
                     .flatMap(sourcePost -> {
-                        PrivatePost.Bundle bundle = readBundleFromSourcePost(sourcePost);
-                        if (bundle == null) {
-                            return Mono.error(new IllegalArgumentException("当前文章还没有有效的私密正文 bundle，请重新加锁后再使用平台恢复"));
-                        }
-
-                        try {
-                            PrivatePostBundleValidator.validate(bundle);
-                        } catch (IllegalArgumentException error) {
-                            return Mono.error(new IllegalArgumentException("当前文章的私密正文 bundle 无效，请重新加锁后再使用平台恢复"));
-                        }
-
-                        if (bundle.getSiteRecoverySlot() == null) {
+                        PrivatePost.Bundle bundle = requireBundleFromSourcePost(sourcePost);
+                        PrivatePost.SiteRecoverySlot siteRecoverySlot = bundle.getSiteRecoverySlot();
+                        if (siteRecoverySlot == null || !StringUtils.hasText(siteRecoverySlot.getWrappedCek())) {
                             return Mono.error(new IllegalArgumentException("当前文章还没有平台恢复槽，不能直接后台重置口令"));
                         }
 
+                        try {
+                            validateSiteRecoverySlot(siteRecoverySlot);
+                        } catch (IllegalArgumentException error) {
+                            return Mono.error(new IllegalArgumentException(
+                                "当前文章的私密正文 bundle 无效，请重新加锁后再使用平台恢复",
+                                error
+                            ));
+                        }
                         return siteRecoveryKeyService.unwrap(
-                                hexToBytes(bundle.getSiteRecoverySlot().getWrappedCek())
+                                hexToBytes(siteRecoverySlot.getWrappedCek())
                             )
                             .flatMap(contentKey -> {
                                 bundle.setPasswordSlot(passwordSlotCryptoService.wrapContentKey(
@@ -157,7 +170,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
             ? new LinkedHashMap<>()
             : new LinkedHashMap<>(metadata.getAnnotations());
         annotations.put(
-            PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+            PRIVATE_POST_BUNDLE_ANNOTATION,
             writeBundleText(bundle)
         );
         metadata.setAnnotations(annotations);
@@ -183,15 +196,30 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
         spec.setBundle(bundle);
     }
 
-    private PrivatePost.Bundle readBundleFromSourcePost(Post sourcePost) {
+    private PrivatePost.Bundle requireBundleFromSourcePost(Post sourcePost) {
         if (sourcePost == null || sourcePost.getMetadata() == null) {
-            return null;
+            throw new IllegalArgumentException("当前文章还没有有效的私密正文 bundle，请重新加锁后再使用平台恢复");
         }
 
-        return PostPrivatePostSyncListener.readBundleFromAnnotations(
-            sourcePost.getMetadata().getName(),
-            sourcePost.getMetadata().getAnnotations()
-        );
+        Map<String, String> annotations = sourcePost.getMetadata().getAnnotations();
+        String bundleText = annotations == null ? null : annotations.get(PRIVATE_POST_BUNDLE_ANNOTATION);
+        if (!StringUtils.hasText(bundleText)) {
+            throw new IllegalArgumentException("当前文章还没有有效的私密正文 bundle，请重新加锁后再使用平台恢复");
+        }
+
+        try {
+            PrivatePost.Bundle bundle = OBJECT_MAPPER.readValue(bundleText, PrivatePost.Bundle.class);
+            validateBundleForPasswordReset(bundle);
+            return bundle;
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("当前文章的私密正文 bundle 无效，请重新加锁后再使用平台恢复", error);
+        } catch (IllegalArgumentException error) {
+            String message = error.getMessage();
+            if ("site_recovery_slot 缺失".equals(message) || "site_recovery_slot.wrapped_cek 不能为空".equals(message)) {
+                throw new IllegalArgumentException("当前文章还没有平台恢复槽，不能直接后台重置口令", error);
+            }
+            throw new IllegalArgumentException("当前文章的私密正文 bundle 无效，请重新加锁后再使用平台恢复", error);
+        }
     }
 
     private String writeBundleText(PrivatePost.Bundle bundle) {
@@ -268,6 +296,107 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
             result[index / 2] = (byte) Integer.parseInt(hex.substring(index, index + 2), 16);
         }
         return result;
+    }
+
+    private static void validateBundleForPasswordReset(@Nullable PrivatePost.Bundle bundle) {
+        if (bundle == null) {
+            throw new IllegalArgumentException("Bundle 缺失");
+        }
+
+        if (bundle.getVersion() == null || bundle.getVersion() != BUNDLE_VERSION) {
+            throw new IllegalArgumentException("只支持 v3 私密正文 bundle");
+        }
+
+        String payloadFormat = requireText(bundle.getPayloadFormat(), "payload_format").trim().toLowerCase();
+        if (!PAYLOAD_FORMAT_MARKDOWN.equals(payloadFormat) && !PAYLOAD_FORMAT_HTML.equals(payloadFormat)) {
+            throw new IllegalArgumentException("当前 bundle 的 payload_format 不受支持");
+        }
+
+        if (!BUNDLE_CIPHER.equals(requireText(bundle.getCipher(), "cipher"))
+            || !BUNDLE_KDF.equals(requireText(bundle.getKdf(), "kdf"))) {
+            throw new IllegalArgumentException("当前 bundle 的算法组合不受支持");
+        }
+
+        requireHexExact(bundle.getDataIv(), AES_GCM_IV_BYTES, "data_iv");
+        requireHexAtLeast(bundle.getCiphertext(), MIN_CONTENT_CIPHERTEXT_BYTES, "ciphertext");
+        requireHexExact(bundle.getAuthTag(), AES_GCM_AUTH_TAG_BYTES, "auth_tag");
+        validatePasswordSlot(bundle.getPasswordSlot());
+        validateMetadata(bundle.getMetadata());
+    }
+
+    private static void validatePasswordSlot(@Nullable PrivatePost.PasswordSlot passwordSlot) {
+        if (passwordSlot == null) {
+            throw new IllegalArgumentException("password_slot 缺失");
+        }
+
+        if (!PASSWORD_SLOT_KDF.equals(requireText(passwordSlot.getKdf(), "password_slot.kdf"))) {
+            throw new IllegalArgumentException("当前 bundle 的 password slot 算法不受支持");
+        }
+
+        requireHexExact(passwordSlot.getSalt(), PASSWORD_SLOT_SALT_BYTES, "password_slot.salt");
+        requireHexExact(passwordSlot.getWrapIv(), AES_GCM_IV_BYTES, "password_slot.wrap_iv");
+        requireHexExact(passwordSlot.getWrappedCek(), CONTENT_KEY_BYTES, "password_slot.wrapped_cek");
+        requireHexExact(passwordSlot.getAuthTag(), AES_GCM_AUTH_TAG_BYTES, "password_slot.auth_tag");
+    }
+
+    private static void validateSiteRecoverySlot(@Nullable PrivatePost.SiteRecoverySlot siteRecoverySlot) {
+        if (siteRecoverySlot == null) {
+            throw new IllegalArgumentException("site_recovery_slot 缺失");
+        }
+
+        if (!SITE_RECOVERY_KID.equals(requireText(siteRecoverySlot.getKid(), "site_recovery_slot.kid"))) {
+            throw new IllegalArgumentException("当前 bundle 的平台恢复 kid 不受支持");
+        }
+
+        if (!SITE_RECOVERY_ALGORITHM.equals(requireText(siteRecoverySlot.getAlg(), "site_recovery_slot.alg"))) {
+            throw new IllegalArgumentException("当前 bundle 的平台恢复算法不受支持");
+        }
+
+        requireHexExact(siteRecoverySlot.getWrappedCek(), SITE_RECOVERY_WRAPPED_CEK_BYTES,
+            "site_recovery_slot.wrapped_cek");
+    }
+
+    private static void validateMetadata(@Nullable PrivatePost.BundleMetadata metadata) {
+        if (metadata == null) {
+            throw new IllegalArgumentException("metadata 缺失");
+        }
+
+        requireText(metadata.getSlug(), "metadata.slug");
+        requireText(metadata.getTitle(), "metadata.title");
+    }
+
+    private static void requireHexExact(@Nullable String value, int expectedBytes, String fieldName) {
+        requireHex(value, fieldName);
+        if ((value.trim().length() / 2) != expectedBytes) {
+            throw new IllegalArgumentException(fieldName + " 长度非法");
+        }
+    }
+
+    private static void requireHexAtLeast(@Nullable String value, int minimumBytes, String fieldName) {
+        requireHex(value, fieldName);
+        if ((value.trim().length() / 2) < minimumBytes) {
+            throw new IllegalArgumentException(fieldName + " 长度非法");
+        }
+    }
+
+    private static void requireHex(@Nullable String value, String fieldName) {
+        String normalized = requireText(value, fieldName).trim();
+        if ((normalized.length() % 2) != 0) {
+            throw new IllegalArgumentException(fieldName + " 长度非法");
+        }
+
+        for (int index = 0; index < normalized.length(); index += 1) {
+            if (Character.digit(normalized.charAt(index), 16) < 0) {
+                throw new IllegalArgumentException(fieldName + " 不是合法 hex");
+            }
+        }
+    }
+
+    private static String requireText(@Nullable String value, String fieldName) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalArgumentException(fieldName + " 不能为空");
+        }
+        return value;
     }
 
     private record SiteRecoveryResetRequest(String postName, String nextPassword) {
