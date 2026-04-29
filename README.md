@@ -1,10 +1,42 @@
 # Halo Private Posts
 
-`Halo Private Posts` 是一个 Halo 插件，用来把“私密正文”做成 Halo 原生文章的一种增强能力。
+`Halo Private Posts` 是一个 Halo 插件，用来给 Halo 原生文章增加“正文加密、浏览器本地解密、自动重锁”的能力。
 
-文章仍然是普通 `Post`，标题、slug、摘要等元数据继续公开；正文则以加密 bundle 的形式保存，并在读者浏览器内本地解密。
+文章仍然保持普通 `Post` 工作流：标题、slug、摘要等元数据继续公开，正文则以加密 bundle 的形式保存，并在读者浏览器里本地解密。
 
-当前实现只支持 `EncryptedPrivatePostBundle v3`：
+## 效果预览
+
+### 编辑页加密面板
+
+![编辑页加密面板](docs/images/editor-panel.png)
+
+### 文章列表状态
+
+![文章列表状态](docs/images/post-list-status.png)
+
+## 核心能力
+
+- 直接增强 Halo 原生文章，不维护第二套正文系统
+- 文章列表展示 `已加锁 / 未加锁` 状态，可直接点击进入加密面板
+- 编辑页顶部提供 `文章加密` 入口
+- 读者在原文章页或独立阅读页输入访问密码后，本地解密正文
+- 页面离开、切后台或空闲超时后自动重新锁定
+- 后台支持平台恢复口令重置，不暴露正文和内容密钥
+
+## 工作方式
+
+- 加锁基于当前文章已保存的 Markdown 或 HTML 正文
+- 前端在浏览器本地完成加密，再把 bundle 写回文章注解
+- 服务端同步维护 `PrivatePost` 镜像，处理列表状态、阅读接口和恢复流程
+- 原文章页正文区域会被锁定态接管，解锁后原位阅读
+- `/private-posts?slug=...` 保留为独立阅读页
+
+## 兼容与协议
+
+- Halo：`>= 2.24.0`
+- 当前只支持 `EncryptedPrivatePostBundle v3`
+
+`v3` 使用：
 
 - 随机生成内容密钥 `CEK`
 - 用 `CEK` 通过 `AES-256-GCM` 加密正文
@@ -12,19 +44,6 @@
 - 用 `site_recovery_slot` 通过站点恢复公钥包裹同一个 `CEK`
 - Halo 服务端不保存访问口令，但会保存站点恢复私钥
 - 阅读端公开交互始终只保留访问口令，不暴露恢复入口
-
-## 当前形态
-
-插件现在的主工作流已经不是“单独维护一篇私密文章”，而是直接增强 Halo 原生文章流：
-
-- 作者可以点击文章列表中的“已加锁 / 未加锁”状态，或在文章编辑页顶部点击“文章加密”；两处都会进入独立面板
-- 插件读取当前文章已保存的 Markdown 或 HTML 正文，在浏览器本地加密后写回文章注解
-- 加锁时前端会先立即写入文章注解，再同步 upsert `PrivatePost` 镜像；镜像写入失败会回滚注解
-- 文章保存、发布、取消发布、可见性变化、删除事件，以及插件启动补扫，都会继续同步或清理 `PrivatePost` 镜像
-- `PrivatePost` 资源名统一使用 `postName`；再次加锁前会先清理软删除残留，避免设置成功但列表和实际未生效
-- 原文章页正文区域会被替换成锁定态，读者可以在原页面内直接解锁
-- `/private-posts?slug=...` 仍保留为独立阅读页
-- `/console/private-posts` 只作为隐藏的后台恢复兜底页保留；它不再出现在菜单里，主入口回到文章列表状态标签和文章编辑页
 
 ## 已实现能力
 
@@ -64,36 +83,14 @@
 - 匿名阅读入口都返回 `Cache-Control: no-store`，避免旧 bundle 被缓存
 - 默认锁定页模板 `private-post.html`
 
-## 核心模型
+## 快速安装
 
-### `PrivatePost`
+1. 从 GitHub Releases 下载插件 JAR。
+2. 在 Halo 后台安装并启用插件。
+3. 打开文章列表，点击 `已加锁 / 未加锁` 状态，或在编辑页顶部点击 `文章加密`。
+4. 先保存正文，再输入访问密码并加锁。
 
-`PrivatePost.spec` 当前包含：
-
-- `postName`
-- `slug`
-- `title`
-- `excerpt`
-- `publishedAt`
-- `bundle`
-
-它是文章私密正文的服务端镜像，不是第二套正文编辑系统。
-
-当前还约定：
-
-- `PrivatePost.metadata.name = postName`
-- `Post.metadata.annotations["privateposts.halo.run/bundle"]` 才是 bundle 真源
-- 软删除残留会在再次加锁、取消加锁和插件启动补扫时继续清理
-- 只有通过完整 `v3` 校验的 bundle 才会被视为“已加锁文章”；占位 bundle 和脏数据会被当成无效状态
-
-### 恢复边界
-
-当前恢复模型就是“平台托管恢复”：
-
-- 服务端保存站点恢复私钥
-- 前端只使用站点恢复公钥写入 `site_recovery_slot`
-- 正常阅读仍然只能靠访问口令
-- 后台重置口令时不回显正文，也不把 `CEK` 暴露给浏览器
+更完整的上线、升级、回滚和卸载说明见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
 
 ## 文档导航
 
