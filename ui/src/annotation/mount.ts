@@ -75,9 +75,7 @@ export function syncPrivatePostEditorEntry(): void {
     return
   }
 
-  const reusableEntry = existingEntries[0] instanceof HTMLButtonElement
-    ? existingEntries[0]
-    : document.createElement('button')
+  const reusableEntry = existingEntries[0] ?? createEditorEntryElement(settingsButton)
 
   existingEntries
     .slice(reusableEntry === existingEntries[0] ? 1 : 0)
@@ -123,12 +121,36 @@ export function hideInternalAnnotationFields(): void {
   })
 }
 
-function configureEditorEntry(entry: HTMLButtonElement, settingsButton: HTMLElement): void {
-  entry.type = 'button'
+function createEditorEntryElement(settingsButton: HTMLElement): HTMLElement {
+  const tagName = settingsButton.tagName.toLowerCase()
+
+  if (tagName === 'button') {
+    return document.createElement('button')
+  }
+
+  return document.createElement(tagName || 'div')
+}
+
+function configureEditorEntry(entry: HTMLElement, settingsButton: HTMLElement): void {
+  if (entry instanceof HTMLButtonElement) {
+    entry.type = 'button'
+    entry.disabled = false
+  } else {
+    entry.setAttribute('role', 'button')
+    entry.tabIndex = 0
+    entry.removeAttribute('disabled')
+    entry.removeAttribute('aria-disabled')
+    entry.onkeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        void openPrivatePostAnnotationTool()
+      }
+    }
+  }
+
   entry.className = settingsButton.className
   entry.textContent = TOOL_ENTRY_LABEL
   entry.title = TOOL_ENTRY_LABEL
-  entry.disabled = false
   entry.setAttribute('data-hpp-editor-encryption-entry', 'true')
   entry.onclick = () => {
     void openPrivatePostAnnotationTool()
@@ -357,12 +379,14 @@ function getEditorRouteKey(): string {
 }
 
 function findEditorSettingsButton(): HTMLElement | null {
-  return findLabeledButton(['Settings', '设置'])
+  return findLabeledElement(['Settings', '设置'])
 }
 
-function findLabeledButton(labels: string[]): HTMLElement | null {
+function findLabeledElement(labels: string[]): HTMLElement | null {
   const expectedLabels = new Set(labels.map((label) => normalizeText(label)))
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+    'button, [role="button"], [role="tab"], .tabbar-item, .toolbar-item, a'
+  ))
 
   const matched = candidates
     .filter((element) => !element.matches(EDITOR_ENTRY_SELECTOR))

@@ -8,7 +8,7 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '0.8.18'
+version = '0.8.19'
 
 def haloPlatformVersion = '2.24.0'
 def haloRuntimeVersion = '2.24.1'

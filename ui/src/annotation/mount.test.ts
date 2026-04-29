@@ -68,6 +68,29 @@ describe('annotation mount helpers', () => {
     expect(injectedEntries[0].previousElementSibling).toBe(settingsButton)
   })
 
+  it('injects a sibling entry when the Settings trigger is a non-button tab element', () => {
+    window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
+    document.body.innerHTML = `
+      <div class="editor-toolbar tabs-wrapper">
+        <div class="tabbar-item">Preview</div>
+        <div class="tabbar-item" role="tab">Settings</div>
+      </div>
+    `
+
+    syncPrivatePostEditorEntry()
+
+    const settingsEntry = Array.from(document.querySelectorAll<HTMLElement>('[role="tab"], .tabbar-item'))
+      .find((element) => element.textContent === 'Settings')
+    const injectedEntry = document.querySelector<HTMLElement>('[data-hpp-editor-encryption-entry]')
+
+    expect(settingsEntry).not.toBeNull()
+    expect(injectedEntry).not.toBeNull()
+    expect(injectedEntry?.textContent).toBe('文章加密')
+    expect(injectedEntry?.tagName).toBe('DIV')
+    expect(injectedEntry?.getAttribute('role')).toBe('button')
+    expect(injectedEntry?.previousElementSibling).toBe(settingsEntry)
+  })
+
   it('opens an independent encryption panel without clicking Settings', async () => {
     window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
     document.body.innerHTML = `
