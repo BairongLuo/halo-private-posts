@@ -103,6 +103,7 @@
 - [docs/MAINTENANCE.md](docs/MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
 - [docs/OPERATIONS.md](docs/OPERATIONS.md)：站点管理员视角的安装、升级、卸载与回滚说明
 - [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)：发布前 smoke test 清单
+- [docs/HALO_APP_STORE_SUBMISSION.md](docs/HALO_APP_STORE_SUBMISSION.md)：Halo 商店上架材料与 PR 草案
 
 ## 开发要求
 
