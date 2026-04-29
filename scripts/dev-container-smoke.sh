@@ -86,6 +86,23 @@ assert_url_status() {
   fi
 }
 
+assert_cache_control_contains() {
+  local url="$1"
+  local expected_fragment="$2"
+  local headers cache_control
+
+  headers="$(curl -sS -D - -o /dev/null "$url" || true)"
+  cache_control="$(
+    printf '%s' "$headers" \
+      | awk 'BEGIN {IGNORECASE=1} /^Cache-Control:/ {sub(/\r$/, "", $0); print substr($0, index($0, ":") + 2); exit}'
+  )"
+
+  if [[ -z "$cache_control" || "$cache_control" != *"$expected_fragment"* ]]; then
+    log "Unexpected Cache-Control for ${url}: expected to contain ${expected_fragment}, got ${cache_control:-<missing>}"
+    return 1
+  fi
+}
+
 main() {
   log "Workspace: ${ROOT_DIR}"
   log "Halo base URL: ${HALO_BASE_URL}"
@@ -143,6 +160,8 @@ main() {
   log "Checking private post routes are mounted"
   assert_url_status "${HALO_BASE_URL}/private-posts?slug=missing-slug" "404"
   assert_url_status "${HALO_BASE_URL}/private-posts/data?slug=missing-slug" "404"
+  assert_cache_control_contains "${HALO_BASE_URL}/private-posts?slug=missing-slug" "no-store"
+  assert_cache_control_contains "${HALO_BASE_URL}/private-posts/data?slug=missing-slug" "no-store"
 
   log "Smoke checks passed"
 }

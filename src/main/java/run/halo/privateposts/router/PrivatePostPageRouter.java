@@ -5,6 +5,7 @@ import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
@@ -38,24 +39,24 @@ public class PrivatePostPageRouter {
     private Mono<ServerResponse> queryPrivatePost(ServerRequest request) {
         String slug = request.queryParam("slug").orElse("");
         if (slug.isBlank()) {
-            return ServerResponse.notFound().build();
+            return notFoundNoStore();
         }
         return privatePostService.getPublicViewBySlug(slug)
             .flatMap(view -> ServerResponse.ok()
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(view))
-            .switchIfEmpty(ServerResponse.notFound().build());
+            .switchIfEmpty(Mono.defer(this::notFoundNoStore));
     }
 
     private Mono<ServerResponse> renderPrivatePostPage(ServerRequest request) {
         String slug = request.queryParam("slug").orElse("");
         if (slug.isBlank()) {
-            return ServerResponse.notFound().build();
+            return notFoundNoStore();
         }
         return privatePostService.getPublicViewBySlug(slug)
             .flatMap(view -> renderTemplate(request, view))
-            .switchIfEmpty(ServerResponse.notFound().build());
+            .switchIfEmpty(Mono.defer(this::notFoundNoStore));
     }
 
     private Mono<ServerResponse> renderTemplate(ServerRequest request, PrivatePostView view) {
@@ -81,5 +82,11 @@ public class PrivatePostPageRouter {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private Mono<ServerResponse> notFoundNoStore() {
+        return ServerResponse.status(HttpStatus.NOT_FOUND)
+            .cacheControl(CacheControl.noStore())
+            .build();
     }
 }

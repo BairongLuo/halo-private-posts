@@ -31,6 +31,7 @@
 - `./gradlew reloadPlugin`
 - Halo 存活检查
 - reader 静态资源与私密路由挂载检查
+- 匿名 reader 页和 bundle JSON 路由在 `404` 场景下也返回 `Cache-Control: no-store`
 
 其中 `smokeCheck` 会先跑完整 `build`；而 `build` 又会包含 `check`，所以前端 `typeCheckUi` 和 `testUi` 也已经被间接覆盖。
 脚本会从 `settings.gradle` 读取 `rootProject.name` 来确认容器里的插件目录，再从 `src/main/resources/plugin.yaml` 读取 `metadata.name` 验证 `/plugins/<plugin-name>/assets/reader/*` 路径，不再依赖仓库目录名和插件标识刚好一致。

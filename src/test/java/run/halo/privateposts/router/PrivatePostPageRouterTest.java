@@ -31,6 +31,7 @@ class PrivatePostPageRouterTest {
             .uri("/private-posts/data?slug=hello-halo")
             .exchange()
             .expectStatus().isOk()
+            .expectHeader().valueEquals("Cache-Control", "no-store")
             .expectBody()
             .jsonPath("$.slug").isEqualTo("hello-halo")
             .jsonPath("$.title").isEqualTo("Hello Halo")
@@ -53,8 +54,43 @@ class PrivatePostPageRouterTest {
             .uri("/private-posts?slug=hello-halo")
             .exchange()
             .expectStatus().isOk()
+            .expectHeader().valueEquals("Cache-Control", "no-store")
             .expectBody(String.class)
             .value(body -> org.assertj.core.api.Assertions.assertThat(body).contains("Hello Halo"));
+    }
+
+    @Test
+    void shouldReturnNoStoreForMissingPublicDataView() {
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);
+        when(privatePostService.getPublicViewBySlug("missing-slug"))
+            .thenReturn(Mono.empty());
+        WebTestClient client = bindClient(
+            new PrivatePostPageRouter(templateNameResolver, privatePostService)
+        );
+
+        client.get()
+            .uri("/private-posts/data?slug=missing-slug")
+            .exchange()
+            .expectStatus().isNotFound()
+            .expectHeader().valueEquals("Cache-Control", "no-store");
+    }
+
+    @Test
+    void shouldReturnNoStoreForMissingReaderPage() {
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);
+        when(privatePostService.getPublicViewBySlug("missing-slug"))
+            .thenReturn(Mono.empty());
+        WebTestClient client = bindClient(
+            new PrivatePostPageRouter(templateNameResolver, privatePostService)
+        );
+
+        client.get()
+            .uri("/private-posts?slug=missing-slug")
+            .exchange()
+            .expectStatus().isNotFound()
+            .expectHeader().valueEquals("Cache-Control", "no-store");
     }
 
     private WebTestClient bindClient(PrivatePostPageRouter router) {
