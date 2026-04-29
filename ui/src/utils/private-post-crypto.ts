@@ -1,5 +1,5 @@
 import { Marked } from 'marked'
-import { scrypt } from 'scrypt-js'
+import scryptJs from 'scrypt-js'
 
 import type {
   BundleMetadata,
@@ -9,7 +9,7 @@ import type {
   PrivatePostPayloadFormat,
   SiteRecoveryPublicKey,
   SiteRecoverySlot,
-} from '@/types/private-post'
+} from '../types/private-post'
 
 const BUNDLE_VERSION = 3
 const BUNDLE_CIPHER = 'aes-256-gcm'
@@ -31,6 +31,7 @@ const ALLOWED_IMAGE_PROTOCOLS = new Set(['http:', 'https:'])
 const RELATIVE_URL_PATTERN = /^(?:\/(?!\/)|\.{1,2}\/|#|\?)/
 const SUPPORTED_PAYLOAD_FORMATS = new Set<PrivatePostPayloadFormat>(['markdown', 'html'])
 const ALLOWED_LINK_TARGETS = new Set(['_blank', '_self', '_parent', '_top'])
+const { scrypt } = scryptJs as typeof import('scrypt-js')
 const BLOCKED_HTML_TAGS = new Set([
   'applet',
   'base',

@@ -11,7 +11,9 @@
     "build:console": "vite build",
     "build:reader": "vite build --config reader.vite.config.ts",
     "dev": "vite build --watch --mode=development",
-    "test:unit": "vitest --run --environment node",
+    "playwright:install": "playwright install chromium",
+    "test:e2e": "playwright test",
+    "test:unit": "vitest --config vitest.config.ts --run",
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
@@ -26,6 +28,7 @@
   },
   "devDependencies": {
     "@halo-dev/ui-plugin-bundler-kit": "2.24.0",
+    "@playwright/test": "1.56.1",
     "@rsbuild/core": "1.2.0",
     "@rsbuild/plugin-vue": "1.2.0",
     "@tsconfig/node20": "20.1.6",

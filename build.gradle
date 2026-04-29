@@ -1,3 +1,5 @@
+import org.gradle.jvm.tasks.Jar
+
 plugins {
     id 'java'
     id 'io.freefair.lombok' version '8.14'
@@ -8,7 +10,7 @@ plugins {
 group = 'run.halo.privateposts'
 version = '0.8.13'
 
-def haloPlatformVersion = '2.22.0'
+def haloPlatformVersion = '2.24.0'
 def haloRuntimeVersion = '2.24.1'
 def uiNodeVersion = '20.19.0'
 def uiNpmVersion = '10.8.2'
@@ -18,7 +20,6 @@ repositories {
 }
 
 dependencies {
-    // 2.24.x plugin BOM is not published to Maven Central yet.
     implementation platform("run.halo.tools.platform:plugin:${haloPlatformVersion}")
     compileOnly 'run.halo.app:api'
     testImplementation 'run.halo.app:api'
@@ -68,6 +69,16 @@ tasks.register('testUi', NpmTask) {
     dependsOn tasks.named('npmInstall')
 }
 
+tasks.register('installPlaywrightUi', NpmTask) {
+    args = ['run', 'playwright:install']
+    dependsOn tasks.named('npmInstall')
+}
+
+tasks.register('testE2eUi', NpmTask) {
+    args = ['run', 'test:e2e']
+    dependsOn tasks.named('installPlaywrightUi')
+}
+
 tasks.register('processConsoleUiResources', Sync) {
     from file("${project.projectDir}/ui/build/dist")
     into layout.buildDirectory.dir('resources/main/console')
@@ -90,6 +101,45 @@ tasks.named('classes') {
 tasks.named('check') {
     dependsOn tasks.named('typeCheckUi')
     dependsOn tasks.named('testUi')
+}
+
+tasks.register('smokeCheck') {
+    group = 'verification'
+    description = 'Builds the plugin and verifies the packaged artifact contains required runtime assets.'
+    dependsOn tasks.named('build')
+
+    doLast {
+        def jarFile = tasks.named('jar', Jar).get().archiveFile.get().asFile
+        if (!jarFile.exists()) {
+            throw new GradleException("Smoke check failed: plugin JAR was not produced at ${jarFile}.")
+        }
+
+        def requiredEntries = [
+            'plugin.yaml',
+            'console/main.js',
+            'console/style.css',
+            'static/reader/reader.js',
+            'static/reader/reader.css'
+        ]
+        def missingEntries = []
+        def zipFile = new java.util.zip.ZipFile(jarFile)
+        try {
+            requiredEntries.each { entryName ->
+                if (zipFile.getEntry(entryName) == null) {
+                    missingEntries.add(entryName)
+                }
+            }
+        } finally {
+            zipFile.close()
+        }
+
+        if (!missingEntries.isEmpty()) {
+            throw new GradleException(
+                "Smoke check failed: plugin artifact ${jarFile.name} is missing entries: "
+                    + missingEntries.join(', ')
+            )
+        }
+    }
 }
 
 tasks.named('jar') {

@@ -101,6 +101,8 @@
 - [docs/ROADMAP.md](docs/ROADMAP.md)：阶段性进度和后续计划
 - [docs/RECOVERY_MODES.md](docs/RECOVERY_MODES.md)：当前恢复模型
 - [docs/MAINTENANCE.md](docs/MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)：站点管理员视角的安装、升级、卸载与回滚说明
+- [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)：发布前 smoke test 清单
 
 ## 开发要求
 
@@ -143,9 +145,23 @@ npm run build
 ## 验证建议
 
 - 常规回归：`./gradlew check`
+- 打包 smoke check：`./gradlew smokeCheck`
+- 开发容器 smoke：`./scripts/dev-container-smoke.sh`
+- 一键本地验收（含 smoke、前端回归、后台恢复 e2e）：`./scripts/dev-container-acceptance.sh`
+- 安装 Playwright 浏览器：`./gradlew installPlaywrightUi`
+- 后台恢复 e2e：`./gradlew testE2eUi`
 - UI 类型检查：`cd ui && npm run type-check`
 - UI 单测：`cd ui && npm run test:unit`
 - 插件完整构建：`./gradlew build`
+
+如果要在 GitHub Actions 上手动跑完整链路，可触发 `.github/workflows/full-regression.yml`。
+
+## 站点上线
+
+如果要部署到真实 Halo 站点，先看：
+
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)
 
 ## 当前不做的事情
 

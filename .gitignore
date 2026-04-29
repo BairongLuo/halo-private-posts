@@ -5,6 +5,8 @@ ui/dist/
 ui/build/
 ui/dist-reader/
 ui/node_modules/
+ui/test-results/
+ui/playwright-report/
 .idea/
 .vscode/
 *.iml
