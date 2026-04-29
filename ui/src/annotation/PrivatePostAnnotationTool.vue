@@ -102,11 +102,11 @@ const statusMessage = computed(() => {
   }
 
   if (!hasBundle.value) {
-    return '当前文章未加锁。输入访问密码后，可直接基于当前已保存草稿正文生成密文，并立即保存加锁状态。'
+    return '当前文章未加锁。'
   }
 
   if (parsedBundle.value) {
-    return '当前文章已写入加密正文。修改正文后请先保存文章，再重新点击“根据当前正文加锁”。'
+    return '当前文章已加锁。修改正文后请先保存，再重新加锁。'
   }
 
   return bundleParseError.value || '当前加密正文无法解析'
@@ -682,7 +682,7 @@ async function refreshStandaloneBundleState(): Promise<void> {
       <div>
         <p class="hpp-annotation-label">文章加密</p>
         <p class="hpp-annotation-help">
-          这里不会再维护第二份正文。插件会直接读取当前文章已保存的草稿正文，在浏览器本地加密后写回文章加密字段。
+          基于当前已保存正文加锁。
         </p>
       </div>
       <span class="hpp-annotation-badge" :data-tone="statusTone">
@@ -694,9 +694,7 @@ async function refreshStandaloneBundleState(): Promise<void> {
       {{ statusMessage }}
     </p>
 
-    <p class="hpp-annotation-note">
-      说明：先保存正文，再点击“根据当前正文加锁”。加锁和取消加锁都会立即保存状态。
-    </p>
+    <p class="hpp-annotation-note">请先保存正文，再加锁。</p>
 
     <label class="hpp-annotation-field">
       <span>访问密码</span>
