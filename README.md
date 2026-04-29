@@ -8,11 +8,11 @@
 
 ### 编辑页加密面板
 
-![编辑页加密面板](docs/images/editor-panel.png)
+<img src="docs/images/editor-panel.png" alt="编辑页加密面板" width="50%" />
 
 ### 文章列表状态
 
-![文章列表状态](docs/images/post-list-status.png)
+<img src="docs/images/post-list-status.png" alt="文章列表状态" width="50%" />
 
 ## 核心能力
 
@@ -140,43 +140,9 @@ npm run test:unit
 npm run build
 ```
 
-## 验证建议
-
-- 常规回归：`./gradlew check`
-- 打包 smoke check：`./gradlew smokeCheck`
-- 开发容器 smoke：`./scripts/dev-container-smoke.sh`
-- 一键本地验收（含 smoke、登录态恢复、独立阅读页与卸载演练）：`./scripts/dev-container-acceptance.sh`
-- 安装 Playwright 浏览器：`./gradlew installPlaywrightUi`
-- 登录态恢复与独立阅读页 e2e：`./gradlew testE2eUi`
-- 卸载清理 smoke：`./scripts/dev-container-uninstall-smoke.sh`
-- 发版构建 workflow：`.github/workflows/release.yml`
-- UI 类型检查：`cd ui && npm run type-check`
-- UI 单测：`cd ui && npm run test:unit`
-- 插件完整构建：`./gradlew build`
-
-`./scripts/dev-container-acceptance.sh` 默认也会补跑一次卸载演练；如需只跑常规链路，可临时使用 `RUN_UNINSTALL_SMOKE=0 ./scripts/dev-container-acceptance.sh`。
-如果要在 GitHub Actions 上手动跑完整链路，可触发 `.github/workflows/full-regression.yml`。
-如果要生成正式发布资产，可手动触发 `.github/workflows/release.yml`，或直接推送 `v*` tag；它会执行 `./gradlew smokeCheck`、产出插件 JAR、生成 `SHA256SUMS`，并在 tag 场景下创建 GitHub Release。
-
 ## 站点上线
 
 如果要部署到真实 Halo 站点，先看：
 
 - [docs/OPERATIONS.md](docs/OPERATIONS.md)
 - [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)
-
-## 当前不做的事情
-
-- DRM
-- 支付或会员系统
-- 登录后阅读体系
-- 评论后阅读
-- 多成员复杂密钥撤销、审计和生命周期管理
-
-## 协议说明
-
-当前代码只支持 `EncryptedPrivatePostBundle v3`。
-
-- `v3`：`password_slot + site_recovery_slot`
-
-如需继续演进协议，应通过显式版本升级完成。
