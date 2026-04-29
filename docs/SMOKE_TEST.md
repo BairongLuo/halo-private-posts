@@ -42,7 +42,7 @@
 RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 ```
 
-如果要验证后台登录、插件 Console 页面、一次真实的平台恢复口令重置，以及独立阅读页的公开解锁流程，再执行：
+如果要验证后台登录、隐藏后台恢复页、一次真实的平台恢复口令重置，以及独立阅读页的公开解锁流程，再执行：
 
 ```bash
 ./gradlew installPlaywrightUi
@@ -94,7 +94,7 @@ RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 ## 检查清单
 
 1. 安装并启用插件。
-   预期：文章设置里出现“私密正文”工具，后台能进入 `/console/private-posts`。
+   预期：文章设置里出现“私密正文”工具，后台菜单不再额外暴露私密文章页面。
 
 2. 新建一篇公开文章并保存正文。
    预期：未加锁时原文章页仍是普通正文。
@@ -111,7 +111,7 @@ RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 6. 打开独立阅读页 `/private-posts?slug=...`。
    预期：可以使用同一访问口令解锁，接口响应不被缓存。
 
-7. 打开后台 `/console/private-posts`，用平台恢复重置访问口令。
+7. 直达隐藏后台页 `/console/private-posts`，用平台恢复重置访问口令。
    预期：旧口令失效，新口令立即生效。
 
 8. 返回文章设置，点击“取消加锁”。

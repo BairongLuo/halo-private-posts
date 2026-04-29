@@ -75,6 +75,7 @@
 `ui/src/views/PrivatePostsView.vue` 现在只保留平台恢复口令维护入口：
 
 - 直接调用后台平台恢复接口重写 `password_slot`
+- 不再出现在 Halo 后台菜单中，只保留直达 `/console/private-posts` 的隐藏兜底路由
 
 不要把“平台恢复”实现成浏览器私钥解包模式。浏览器端只负责写入 `site_recovery_slot`，不持有恢复私钥。
 

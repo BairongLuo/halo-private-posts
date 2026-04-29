@@ -1,4 +1,3 @@
-import { IconPlug } from '@halo-dev/components'
 import { definePlugin } from '@halo-dev/ui-shared'
 import { markRaw } from 'vue'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
@@ -41,14 +40,8 @@ export default definePlugin({
         name: 'HaloPrivatePosts',
         component: PrivatePostsView,
         meta: {
-          title: '私密文章',
-          searchable: true,
-          menu: {
-            name: '私密文章',
-            group: '内容',
-            icon: markRaw(IconPlug),
-            priority: 0,
-          },
+          title: '平台恢复重置口令',
+          searchable: false,
         },
       },
     },

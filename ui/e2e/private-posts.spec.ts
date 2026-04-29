@@ -147,11 +147,11 @@ async function loginToConsole(page: Page): Promise<void> {
 }
 
 async function openPrivatePostsPage(page: Page): Promise<void> {
-  await page.getByText('私密文章', { exact: true }).click()
+  await page.goto('/console/private-posts')
   await expect(page).toHaveURL(/\/console\/(?:#\/)?private-posts(?:\?|$)/)
-  await expect(page.getByRole('heading', { name: '私密文章口令维护' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '平台恢复重置口令' })).toBeVisible()
   await expect(page.getByRole('button', { name: '刷新列表' })).toBeVisible()
-  await expect(page.getByText('后台只保留平台恢复重置入口')).toBeVisible()
+  await expect(page.getByText('这是临时保留的后台恢复页')).toBeVisible()
 }
 
 function hasBundleChanged(

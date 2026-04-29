@@ -242,9 +242,9 @@ function toMessage(error: unknown) {
       <header class="hero">
         <div>
           <p class="eyebrow">Halo Private Posts</p>
-          <h1>私密文章口令维护</h1>
+          <h1>平台恢复重置口令</h1>
           <p class="summary">
-            正常阅读始终靠访问口令。后台只保留平台恢复重置入口，不再提供基于旧口令的直接修改。
+            这是临时保留的后台恢复页。日常加锁、重加锁和取消加锁都应在文章编辑页的“私密正文”工具中完成。
           </p>
         </div>
         <div class="hero-actions">

@@ -2,7 +2,7 @@
 
 `ui/` 现在包含三块前端能力：
 
-1. Halo Console 插件页
+1. 隐藏后台恢复页
    - 展示已加密文章
    - 后台平台恢复重置访问口令
 2. 文章设置里的私密正文工具
@@ -13,7 +13,7 @@
    - 独立阅读页
    - 浏览器本地解密与自动重锁
 
-## Console 页
+## 隐藏恢复页
 
 - 入口：`src/index.ts`
 - 主视图：`src/views/PrivatePostsView.vue`
@@ -22,9 +22,9 @@
   - Console 恢复接口 `/apis/api.console.halo.run/v1alpha1/private-posts/*`
 - 能力：
   - 通过 `post:list-item:field:create` 在文章列表显示私密正文状态
-  - 从文章列表跳转到对应文章的私密正文配置页
   - 按 `postName` 载入真实 Halo 文章信息
   - 通过平台恢复接口重写 `password_slot`
+  - 不再出现在 Halo 后台菜单中，只保留直达路由作为恢复兜底
 
 ## 文章设置工具
 
@@ -54,7 +54,7 @@
 - `src/components/PostPrivateBodyField.vue`
   - Halo 文章列表里的私密正文状态字段
 - `src/views/PrivatePostsView.vue`
-  - Console 管理页和口令维护流
+  - 隐藏后台恢复页和口令维护流
 - `src/reader.ts`
   - 阅读页挂载和自动重锁逻辑
 

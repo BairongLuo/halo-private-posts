@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { VTag } from '@halo-dev/components'
 import { computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 
 import {
   ensurePrivatePostRegistryLoaded,
@@ -12,7 +11,6 @@ import {
 const props = defineProps<{
   postName: string
 }>()
-const router = useRouter()
 
 onMounted(() => {
   void ensurePrivatePostRegistryLoaded()
@@ -35,22 +33,13 @@ const statusLabel = computed(() => {
   return matchedPrivatePost.value ? '已配置私密正文' : '未配置私密正文'
 })
 
-const actionLabel = computed(() => {
+const hintLabel = computed(() => {
   if (!privatePostRegistryLoaded.value) {
-    return '稍后进入配置页'
+    return '请在文章编辑页操作'
   }
 
-  return matchedPrivatePost.value ? '查看配置' : '立即配置'
+  return matchedPrivatePost.value ? '在文章编辑页管理' : '在文章编辑页设置'
 })
-
-async function navigateToConfig() {
-  await router.push({
-    name: 'HaloPrivatePosts',
-    query: {
-      postName: props.postName,
-    },
-  })
-}
 </script>
 
 <template>
@@ -58,9 +47,7 @@ async function navigateToConfig() {
     <VTag :theme="statusTheme" rounded>
       {{ statusLabel }}
     </VTag>
-    <button class="private-post-action" type="button" @click="navigateToConfig">
-      {{ actionLabel }}
-    </button>
+    <span class="private-post-hint">{{ hintLabel }}</span>
   </div>
 </template>
 
@@ -72,18 +59,9 @@ async function navigateToConfig() {
   gap: 8px;
 }
 
-.private-post-action {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: #2563eb;
+.private-post-hint {
+  color: #64748b;
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
-}
-
-.private-post-action:hover {
-  color: #1d4ed8;
-  text-decoration: underline;
 }
 </style>
