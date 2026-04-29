@@ -12,6 +12,7 @@ import {
   waitForPrivatePostRemoval,
   waitForPrivatePostSync,
 } from '@/api/private-posts'
+import { resolveBundleFieldSyncState } from '@/annotation/bundle-field-sync'
 import type { HaloPostContent, HaloPostSummary } from '@/api/posts'
 import type {
   BundleMetadata,
@@ -38,6 +39,7 @@ let bundleField: HTMLInputElement | HTMLTextAreaElement | null = null
 let cleanupBundleListener: (() => void) | null = null
 let domObserver: MutationObserver | null = null
 let domSyncFrame: number | null = null
+let optimisticBundleText: string | null = null
 
 const parsedBundle = computed<EncryptedPrivatePostBundle | null>(() => {
   const text = bundleText.value.trim()
@@ -226,12 +228,23 @@ function syncFromBundleField(): void {
     return
   }
 
-  const nextValue = bundleField.value ?? ''
-  if (nextValue === bundleText.value) {
+  const nextState = resolveBundleFieldSyncState({
+    bundleText: bundleText.value,
+    domValue: bundleField.value ?? '',
+    optimisticBundleText,
+  })
+
+  optimisticBundleText = nextState.optimisticBundleText
+  if (!nextState.shouldUpdateBundleText) {
     return
   }
 
-  bundleText.value = nextValue
+  bundleText.value = nextState.bundleText
+}
+
+function applyOptimisticBundleText(value: string): void {
+  optimisticBundleText = value
+  bundleText.value = value
 }
 
 function readInputValue(selectors: string[]): string {
@@ -343,7 +356,7 @@ function writeBundleToField(value: string): void {
   bundleField.dispatchEvent(new Event('input', { bubbles: true }))
   bundleField.dispatchEvent(new Event('change', { bubbles: true }))
   bundleField.dispatchEvent(new Event('blur', { bubbles: true }))
-  bundleText.value = value
+  applyOptimisticBundleText(value)
 }
 
 function setNativeFieldValue(field: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -404,7 +417,7 @@ async function lockCurrentPost(): Promise<void> {
     try {
       writeBundleToField(nextBundleText)
     } catch {
-      bundleText.value = nextBundleText
+      applyOptimisticBundleText(nextBundleText)
       const pageSyncMessage = '已完成加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
       setActionMessage(
         'success',
@@ -462,7 +475,7 @@ async function clearBundle(): Promise<void> {
     try {
       writeBundleToField('')
     } catch {
-      bundleText.value = ''
+      applyOptimisticBundleText('')
       const pageSyncMessage = '文章已取消加锁并保存，但当前编辑页未同步显示，刷新页面后可见最新状态。'
       setActionMessage(
         'neutral',
