@@ -43,36 +43,37 @@ describe('annotation mount helpers', () => {
     vi.restoreAllMocks()
   })
 
-  it('injects a single sibling entry next to the Settings button on post editor pages', () => {
+  it('injects a single sibling entry next to the current editor toolbar anchor', () => {
     window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
     document.body.innerHTML = `
       <div class="editor-toolbar">
         <button class="toolbar-button">Preview</button>
         <button class="toolbar-button">Settings</button>
+        <button class="toolbar-button">Add Cover</button>
       </div>
     `
 
     syncPrivatePostEditorEntry()
     syncPrivatePostEditorEntry()
 
-    const settingsButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Settings')
+    const anchorButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Add Cover')
     const injectedEntries = Array.from(document.querySelectorAll<HTMLButtonElement>(
       '[data-hpp-editor-encryption-entry]'
     ))
 
-    expect(settingsButton).not.toBeNull()
+    expect(anchorButton).not.toBeNull()
     expect(injectedEntries).toHaveLength(1)
     expect(injectedEntries[0].textContent).toBe('文章加密')
     expect(injectedEntries[0].className).toBe('toolbar-button')
-    expect(injectedEntries[0].previousElementSibling).toBe(settingsButton)
+    expect(injectedEntries[0].previousElementSibling).toBe(anchorButton)
   })
 
-  it('injects a sibling entry when the Settings trigger is a non-button tab element', () => {
+  it('falls back to a non-button Settings tab when no current toolbar anchor exists', () => {
     window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
     document.body.innerHTML = `
       <div class="editor-toolbar tabs-wrapper">
-        <div class="tabbar-item">Preview</div>
+        <div class="tabbar-item">Outline</div>
         <div class="tabbar-item" role="tab">Settings</div>
       </div>
     `

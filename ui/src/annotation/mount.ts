@@ -11,12 +11,20 @@ const STANDALONE_BACKDROP_SELECTOR = '[data-hpp-standalone-backdrop]'
 const STANDALONE_CLOSE_SELECTOR = '[data-hpp-standalone-close]'
 const STANDALONE_STYLE_ID = 'hpp-standalone-shell-style'
 const TOOL_ENTRY_LABEL = '文章加密'
+const EDITOR_ENTRY_ANCHOR_LABELS = [
+  ['Add Cover', '添加封面'],
+  ['Publish', '发布'],
+  ['Save', '保存'],
+  ['Preview', '预览'],
+  ['Settings', '设置'],
+] as const
 
 let installed = false
 let standaloneApp: App<Element> | null = null
 let standaloneShell: HTMLElement | null = null
 let standaloneContent: HTMLElement | null = null
 let lastEditorRouteKey = ''
+let scheduledSyncFrame: number | null = null
 
 export function installPrivatePostAnnotationTool(): void {
   if (installed || typeof window === 'undefined' || typeof document === 'undefined') {
@@ -26,18 +34,27 @@ export function installPrivatePostAnnotationTool(): void {
   installed = true
 
   const syncAll = () => {
+    scheduledSyncFrame = null
     hideInternalAnnotationFields()
     syncPrivatePostEditorEntry()
+  }
+
+  const scheduleSyncAll = () => {
+    if (scheduledSyncFrame !== null) {
+      return
+    }
+
+    scheduledSyncFrame = window.requestAnimationFrame(syncAll)
   }
 
   syncAll()
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', syncAll, { once: true })
+    document.addEventListener('DOMContentLoaded', scheduleSyncAll, { once: true })
   }
 
   const observer = new MutationObserver(() => {
-    syncAll()
+    scheduleSyncAll()
   })
 
   observer.observe(document.documentElement, {
@@ -45,8 +62,8 @@ export function installPrivatePostAnnotationTool(): void {
     subtree: true,
   })
 
-  window.addEventListener('hashchange', syncAll)
-  window.addEventListener('popstate', syncAll)
+  window.addEventListener('hashchange', scheduleSyncAll)
+  window.addEventListener('popstate', scheduleSyncAll)
   document.addEventListener('keydown', handleGlobalKeydown)
 }
 
@@ -70,24 +87,24 @@ export function syncPrivatePostEditorEntry(): void {
     closeStandaloneEncryptionPanel({ unmount: true })
   }
 
-  const settingsButton = findEditorSettingsButton()
-  if (!settingsButton) {
+  const anchorElement = findEditorEntryAnchor()
+  if (!anchorElement) {
     return
   }
 
-  const reusableEntry = existingEntries[0] ?? createEditorEntryElement(settingsButton)
+  const reusableEntry = existingEntries[0] ?? createEditorEntryElement(anchorElement)
 
   existingEntries
     .slice(reusableEntry === existingEntries[0] ? 1 : 0)
     .forEach((entry) => entry.remove())
 
-  configureEditorEntry(reusableEntry, settingsButton)
+  configureEditorEntry(reusableEntry, anchorElement)
 
   if (
-    reusableEntry.parentElement !== settingsButton.parentElement
-    || reusableEntry.previousElementSibling !== settingsButton
+    reusableEntry.parentElement !== anchorElement.parentElement
+    || reusableEntry.previousElementSibling !== anchorElement
   ) {
-    settingsButton.insertAdjacentElement('afterend', reusableEntry)
+    anchorElement.insertAdjacentElement('afterend', reusableEntry)
   }
 }
 
@@ -121,8 +138,8 @@ export function hideInternalAnnotationFields(): void {
   })
 }
 
-function createEditorEntryElement(settingsButton: HTMLElement): HTMLElement {
-  const tagName = settingsButton.tagName.toLowerCase()
+function createEditorEntryElement(anchorElement: HTMLElement): HTMLElement {
+  const tagName = anchorElement.tagName.toLowerCase()
 
   if (tagName === 'button') {
     return document.createElement('button')
@@ -131,7 +148,7 @@ function createEditorEntryElement(settingsButton: HTMLElement): HTMLElement {
   return document.createElement(tagName || 'div')
 }
 
-function configureEditorEntry(entry: HTMLElement, settingsButton: HTMLElement): void {
+function configureEditorEntry(entry: HTMLElement, anchorElement: HTMLElement): void {
   if (entry instanceof HTMLButtonElement) {
     entry.type = 'button'
     entry.disabled = false
@@ -148,7 +165,7 @@ function configureEditorEntry(entry: HTMLElement, settingsButton: HTMLElement): 
     }
   }
 
-  entry.className = settingsButton.className
+  entry.className = anchorElement.className
   entry.textContent = TOOL_ENTRY_LABEL
   entry.title = TOOL_ENTRY_LABEL
   entry.setAttribute('data-hpp-editor-encryption-entry', 'true')
@@ -378,11 +395,18 @@ function getEditorRouteKey(): string {
   ].join('|')
 }
 
-function findEditorSettingsButton(): HTMLElement | null {
-  return findLabeledElement(['Settings', '设置'])
+function findEditorEntryAnchor(): HTMLElement | null {
+  for (const labels of EDITOR_ENTRY_ANCHOR_LABELS) {
+    const matched = findLabeledElement(labels)
+    if (matched) {
+      return matched
+    }
+  }
+
+  return null
 }
 
-function findLabeledElement(labels: string[]): HTMLElement | null {
+function findLabeledElement(labels: readonly string[]): HTMLElement | null {
   const expectedLabels = new Set(labels.map((label) => normalizeText(label)))
   const candidates = Array.from(document.querySelectorAll<HTMLElement>(
     'button, [role="button"], [role="tab"], .tabbar-item, .toolbar-item, a'
