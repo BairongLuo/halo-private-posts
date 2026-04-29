@@ -2,17 +2,18 @@
 
 本文档汇总 `halo-private-posts` 发布到 Halo 应用市场所需的最小材料，基于 `2026-04-29` 的仓库状态整理。
 
-## 当前发布状态
+## 当前仓库版本与公开发布状态
 
 - 插件名：`halo-private-posts`
-- 当前版本：`0.8.25`
-- Git tag：`v0.8.25`
+- 仓库当前版本：`1.0.0`
+- 当前公开 Release 版本：`0.8.25`
+- 当前公开 Git tag：`v0.8.25`
 - Halo 兼容范围：`>=2.24.0`
 - GitHub 仓库：`https://github.com/BairongLuo/halo-private-posts`
-- GitHub Release：`https://github.com/BairongLuo/halo-private-posts/releases/tag/v0.8.25`
-- JAR 下载：`https://github.com/BairongLuo/halo-private-posts/releases/download/v0.8.25/halo-private-posts-0.8.25.jar`
-- 校验文件：`https://github.com/BairongLuo/halo-private-posts/releases/download/v0.8.25/SHA256SUMS`
-- SHA256：`52c0a219ed3fffe666b47f9dcdd5d3ec1ef659e3cde5b571f355954c4c6fd6e1`
+- 当前公开 GitHub Release：`https://github.com/BairongLuo/halo-private-posts/releases/tag/v0.8.25`
+- 当前公开 JAR 下载：`https://github.com/BairongLuo/halo-private-posts/releases/download/v0.8.25/halo-private-posts-0.8.25.jar`
+- 当前公开校验文件：`https://github.com/BairongLuo/halo-private-posts/releases/download/v0.8.25/SHA256SUMS`
+- 当前公开 SHA256：`52c0a219ed3fffe666b47f9dcdd5d3ec1ef659e3cde5b571f355954c4c6fd6e1`
 
 ## Halo 官方流程
 
@@ -32,12 +33,14 @@
   - `README.md`
   - `docs/OPERATIONS.md`
   - `docs/SMOKE_TEST.md`
-- `v0.8.25` 已完成 GitHub Release，且包含 JAR 与 `SHA256SUMS`。
+- 当前公开版本 `v0.8.25` 已完成 GitHub Release，且包含 JAR 与 `SHA256SUMS`。
+- 仓库版本已切换到 `1.0.0`，可作为下一次正式公开发布版本。
 
 ## 仍需补充的信息
 
 - Halo 官网用户名：用于上架后转交应用管理权限。
 - 商店截图：官方文档没有硬性格式要求，但实际提审时建议准备文章列表状态、编辑页加密入口、前台解锁页等真实截图。
+- `v1.0.0` 的正式 Release 与对应 SHA256：如果决定以 `1.0.0` 作为首个稳定公开版本，需要先打 tag 并发布。
 
 ## 已补充的仓库元数据
 
@@ -69,11 +72,11 @@ TODO: 填写你的 Halo 官网用户名
 #### 补充说明
 
 - 插件名称：Halo Private Posts
-- 当前版本：v0.8.25
+- 当前版本：v1.0.0
 - 兼容 Halo：>=2.24.0
-- Release：https://github.com/BairongLuo/halo-private-posts/releases/tag/v0.8.25
-- 下载地址：https://github.com/BairongLuo/halo-private-posts/releases/download/v0.8.25/halo-private-posts-0.8.25.jar
-- SHA256：52c0a219ed3fffe666b47f9dcdd5d3ec1ef659e3cde5b571f355954c4c6fd6e1
+- Release：TODO：发布 v1.0.0 后替换为正式 Release 链接
+- 下载地址：TODO：发布 v1.0.0 后替换为正式 JAR 下载链接
+- SHA256：TODO：发布 v1.0.0 后填写
 - 简介：为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。
 
 ```release-note
@@ -100,7 +103,7 @@ TODO: 填写你的 Halo 官网用户名
 
 ## 提交前自检清单
 
-- `v0.8.25` Release 页面可正常下载 JAR 与 `SHA256SUMS`
+- 目标提交版本的 Release 页面可正常下载 JAR 与 `SHA256SUMS`
 - `plugin.yaml` 中版本、兼容范围、主页、问题反馈、许可证信息准确
 - README、运维文档、Smoke Test 文档和当前实现一致
 - PR 中已填写 Halo 官网用户名
