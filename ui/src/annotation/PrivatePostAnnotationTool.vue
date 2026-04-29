@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
   fetchHaloPostHeadContent,
+  getHaloPostBundleAnnotation,
   getHaloPostByName,
   listHaloPosts,
   persistPrivatePostBundleAnnotation,
@@ -25,6 +26,7 @@ type StatusTone = 'neutral' | 'valid' | 'invalid' | 'success'
 
 const props = defineProps<{
   bundleFieldId: string
+  standalone?: boolean
 }>()
 
 const password = ref('')
@@ -118,6 +120,11 @@ const lockButtonText = computed(() => {
 })
 
 onMounted(() => {
+  if (props.standalone) {
+    void refreshStandaloneBundleState()
+    return
+  }
+
   void syncCurrentPostName()
   scheduleDomSync()
   startDomObserver()
@@ -244,6 +251,11 @@ function syncFromBundleField(): void {
 
 function applyOptimisticBundleText(value: string): void {
   optimisticBundleText = value
+  bundleText.value = value
+}
+
+function applyBundleSnapshot(value: string): void {
+  optimisticBundleText = null
   bundleText.value = value
 }
 
@@ -414,6 +426,18 @@ async function lockCurrentPost(): Promise<void> {
       ? ''
       : '加锁结果已经保存，但私密映射仍在后台同步，稍后刷新页面即可看到最新状态。'
 
+    if (props.standalone) {
+      applyOptimisticBundleText(nextBundleText)
+      currentPostName.value = postName
+      password.value = ''
+      confirmPassword.value = ''
+      setActionMessage(
+        'success',
+        syncMessage || '已基于当前已保存草稿正文加锁，并立即保存文章加密状态，同时写入平台恢复槽。后续修改正文后请先保存文章，再重新加锁。'
+      )
+      return
+    }
+
     try {
       writeBundleToField(nextBundleText)
     } catch {
@@ -472,6 +496,16 @@ async function clearBundle(): Promise<void> {
     const syncMessage = removed
       ? ''
       : '文章已取消加锁并保存，但私密映射仍在后台清理，稍后刷新页面即可确认最新状态。'
+
+    if (props.standalone) {
+      applyOptimisticBundleText('')
+      setActionMessage(
+        'neutral',
+        syncMessage || '已取消当前文章加锁，并立即保存文章加密状态。'
+      )
+      return
+    }
+
     try {
       writeBundleToField('')
     } catch {
@@ -623,6 +657,22 @@ function toMessage(error: unknown): string {
 
 async function syncCurrentPostName(): Promise<void> {
   currentPostName.value = await resolveCurrentPostName()
+}
+
+async function refreshStandaloneBundleState(): Promise<void> {
+  const postName = await resolveCurrentPostName()
+  currentPostName.value = postName
+
+  if (!postName) {
+    applyBundleSnapshot('')
+    return
+  }
+
+  try {
+    applyBundleSnapshot(await getHaloPostBundleAnnotation(postName))
+  } catch {
+    applyBundleSnapshot('')
+  }
 }
 </script>
 

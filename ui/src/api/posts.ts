@@ -42,6 +42,11 @@ export async function getHaloPostByName(name: string): Promise<HaloPostSummary> 
   return mapPostToSummary(data)
 }
 
+export async function getHaloPostBundleAnnotation(name: string): Promise<string> {
+  const { data: post } = await coreApiClient.content.post.getPost({ name })
+  return post.metadata.annotations?.[PRIVATE_POST_BUNDLE_ANNOTATION]?.trim() ?? ''
+}
+
 export async function isHaloPostActive(name: string): Promise<boolean> {
   return (await getHaloPostLockState(name)).active
 }

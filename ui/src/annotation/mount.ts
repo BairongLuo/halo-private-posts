@@ -1,19 +1,22 @@
-import { createApp } from 'vue'
+import { createApp, type App } from 'vue'
 
 import PrivatePostAnnotationTool from './PrivatePostAnnotationTool.vue'
 
-const TOOL_SELECTOR = '[data-hpp-annotation-tool]'
-const TOOL_PANEL_SELECTOR = '[data-hpp-annotation-panel]'
+const INTERNAL_BUNDLE_FIELD_ID = 'hpp-annotation-bundle'
 const EDITOR_ENTRY_SELECTOR = '[data-hpp-editor-encryption-entry]'
+const INTERNAL_HOOK_SELECTOR = '[data-hpp-annotation-internal]'
+const STANDALONE_SHELL_SELECTOR = '[data-hpp-standalone-shell]'
+const STANDALONE_CONTENT_SELECTOR = '[data-hpp-standalone-content]'
+const STANDALONE_BACKDROP_SELECTOR = '[data-hpp-standalone-backdrop]'
+const STANDALONE_CLOSE_SELECTOR = '[data-hpp-standalone-close]'
+const STANDALONE_STYLE_ID = 'hpp-standalone-shell-style'
 const TOOL_ENTRY_LABEL = '文章加密'
-const SETTINGS_LABELS = ['Settings', '设置']
-const ANNOTATIONS_LABELS = ['Annotations', '注解']
-const TOOL_WAIT_INTERVAL_MS = 120
-const TOOL_WAIT_ATTEMPTS = 20
-const TOOL_ATTENTION_TIMEOUT_MS = 2200
 
 let installed = false
-const attentionTimeouts = new WeakMap<HTMLElement, number>()
+let standaloneApp: App<Element> | null = null
+let standaloneShell: HTMLElement | null = null
+let standaloneContent: HTMLElement | null = null
+let lastEditorRouteKey = ''
 
 export function installPrivatePostAnnotationTool(): void {
   if (installed || typeof window === 'undefined' || typeof document === 'undefined') {
@@ -22,41 +25,29 @@ export function installPrivatePostAnnotationTool(): void {
 
   installed = true
 
-  const mountAll = () => {
-    mountPrivatePostAnnotationTools()
+  const syncAll = () => {
+    hideInternalAnnotationFields()
     syncPrivatePostEditorEntry()
   }
 
-  mountAll()
+  syncAll()
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mountAll, { once: true })
+    document.addEventListener('DOMContentLoaded', syncAll, { once: true })
   }
 
   const observer = new MutationObserver(() => {
-    mountAll()
+    syncAll()
   })
 
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
   })
-}
 
-export function mountPrivatePostAnnotationTools(): void {
-  document.querySelectorAll<HTMLElement>(TOOL_SELECTOR).forEach((container) => {
-    if (container.dataset.hppMounted === 'true') {
-      return
-    }
-
-    const bundleFieldId = container.dataset.bundleFieldId ?? 'hpp-annotation-bundle'
-
-    createApp(PrivatePostAnnotationTool, {
-      bundleFieldId,
-    }).mount(container)
-
-    container.dataset.hppMounted = 'true'
-  })
+  window.addEventListener('hashchange', syncAll)
+  window.addEventListener('popstate', syncAll)
+  document.addEventListener('keydown', handleGlobalKeydown)
 }
 
 export function syncPrivatePostEditorEntry(): void {
@@ -68,7 +59,15 @@ export function syncPrivatePostEditorEntry(): void {
 
   if (!isPostEditorPage()) {
     existingEntries.forEach((entry) => entry.remove())
+    lastEditorRouteKey = ''
+    closeStandaloneEncryptionPanel({ unmount: true })
     return
+  }
+
+  const routeKey = getEditorRouteKey()
+  if (routeKey !== lastEditorRouteKey) {
+    lastEditorRouteKey = routeKey
+    closeStandaloneEncryptionPanel({ unmount: true })
   }
 
   const settingsButton = findEditorSettingsButton()
@@ -95,44 +94,33 @@ export function syncPrivatePostEditorEntry(): void {
 }
 
 export async function openPrivatePostAnnotationTool(): Promise<boolean> {
-  const existingPanel = findReachableAnnotationPanel()
-  if (existingPanel) {
-    focusAnnotationPanel(existingPanel)
-    return true
-  }
-
-  const annotationsTrigger = findLabeledElement(ANNOTATIONS_LABELS)
-  if (annotationsTrigger) {
-    annotationsTrigger.click()
-    const panelAfterTabSwitch = await waitForAnnotationPanel()
-    if (panelAfterTabSwitch) {
-      focusAnnotationPanel(panelAfterTabSwitch)
-      return true
-    }
-  }
-
-  const settingsButton = findEditorSettingsButton()
-  if (!settingsButton) {
+  if (!isPostEditorPage()) {
     return false
   }
 
-  settingsButton.click()
+  const shell = ensureStandaloneShell()
+  const content = ensureStandaloneShellContent(shell)
 
-  let panel = await waitForAnnotationPanel()
-  if (!panel) {
-    const annotationsTriggerAfterOpen = findLabeledElement(ANNOTATIONS_LABELS)
-    if (annotationsTriggerAfterOpen) {
-      annotationsTriggerAfterOpen.click()
-      panel = await waitForAnnotationPanel()
-    }
-  }
+  mountStandaloneTool(content)
 
-  if (!panel) {
-    return false
-  }
+  shell.hidden = false
+  shell.dataset.open = 'true'
 
-  focusAnnotationPanel(panel)
+  const closeButton = shell.querySelector<HTMLElement>(STANDALONE_CLOSE_SELECTOR)
+  closeButton?.focus()
+
   return true
+}
+
+export function hideInternalAnnotationFields(): void {
+  const bundleField = findBundleField()
+  if (bundleField) {
+    hideElementBlock(findBundleFieldWrapper(bundleField) ?? bundleField)
+  }
+
+  document.querySelectorAll<HTMLElement>(INTERNAL_HOOK_SELECTOR).forEach((element) => {
+    hideElementBlock(element)
+  })
 }
 
 function configureEditorEntry(entry: HTMLButtonElement, settingsButton: HTMLElement): void {
@@ -143,25 +131,201 @@ function configureEditorEntry(entry: HTMLButtonElement, settingsButton: HTMLElem
   entry.disabled = false
   entry.setAttribute('data-hpp-editor-encryption-entry', 'true')
   entry.onclick = () => {
-    void handleEditorEntryClick(entry)
+    void openPrivatePostAnnotationTool()
   }
 }
 
-async function handleEditorEntryClick(entry: HTMLButtonElement): Promise<void> {
-  if (entry.dataset.hppBusy === 'true') {
+function mountStandaloneTool(container: HTMLElement): void {
+  if (standaloneApp && standaloneContent === container) {
     return
   }
 
-  entry.dataset.hppBusy = 'true'
-  const wasDisabled = entry.disabled
-  entry.disabled = true
+  teardownStandaloneTool()
 
-  try {
-    await openPrivatePostAnnotationTool()
-  } finally {
-    entry.disabled = wasDisabled
-    delete entry.dataset.hppBusy
+  standaloneApp = createApp(PrivatePostAnnotationTool, {
+    bundleFieldId: INTERNAL_BUNDLE_FIELD_ID,
+    standalone: true,
+  })
+  standaloneApp.mount(container)
+  standaloneContent = container
+}
+
+function teardownStandaloneTool(): void {
+  standaloneApp?.unmount()
+  standaloneApp = null
+
+  if (standaloneContent) {
+    standaloneContent.innerHTML = ''
   }
+  standaloneContent = null
+}
+
+function closeStandaloneEncryptionPanel(options: { unmount: boolean }): void {
+  if (!standaloneShell) {
+    if (options.unmount) {
+      teardownStandaloneTool()
+    }
+    return
+  }
+
+  delete standaloneShell.dataset.open
+  standaloneShell.hidden = true
+
+  if (options.unmount) {
+    teardownStandaloneTool()
+  }
+}
+
+function ensureStandaloneShell(): HTMLElement {
+  ensureStandaloneShellStyles()
+
+  if (standaloneShell?.isConnected) {
+    return standaloneShell
+  }
+
+  standaloneShell = document.createElement('div')
+  standaloneShell.hidden = true
+  standaloneShell.setAttribute('data-hpp-standalone-shell', 'true')
+  standaloneShell.innerHTML = `
+    <div data-hpp-standalone-backdrop="true"></div>
+    <aside data-hpp-standalone-panel="true" role="dialog" aria-modal="true" aria-label="文章加密">
+      <header data-hpp-standalone-header="true">
+        <div data-hpp-standalone-title="true">
+          <p>文章加密</p>
+          <span>独立于 Settings 的编辑页加密面板</span>
+        </div>
+        <button type="button" data-hpp-standalone-close="true" aria-label="关闭文章加密面板">
+          关闭
+        </button>
+      </header>
+      <div data-hpp-standalone-content="true"></div>
+    </aside>
+  `
+
+  standaloneShell.querySelector<HTMLElement>(STANDALONE_BACKDROP_SELECTOR)?.addEventListener('click', () => {
+    closeStandaloneEncryptionPanel({ unmount: true })
+  })
+  standaloneShell.querySelector<HTMLElement>(STANDALONE_CLOSE_SELECTOR)?.addEventListener('click', () => {
+    closeStandaloneEncryptionPanel({ unmount: true })
+  })
+
+  document.body.appendChild(standaloneShell)
+  return standaloneShell
+}
+
+function ensureStandaloneShellContent(shell: HTMLElement): HTMLElement {
+  const content = shell.querySelector<HTMLElement>(STANDALONE_CONTENT_SELECTOR)
+  if (!content) {
+    throw new Error('独立文章加密面板挂载点缺失')
+  }
+
+  return content
+}
+
+function ensureStandaloneShellStyles(): void {
+  if (document.getElementById(STANDALONE_STYLE_ID)) {
+    return
+  }
+
+  const style = document.createElement('style')
+  style.id = STANDALONE_STYLE_ID
+  style.textContent = `
+    ${STANDALONE_SHELL_SELECTOR} {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483000;
+    }
+
+    ${STANDALONE_SHELL_SELECTOR}[hidden] {
+      display: none !important;
+    }
+
+    ${STANDALONE_BACKDROP_SELECTOR} {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.4);
+      backdrop-filter: blur(2px);
+    }
+
+    ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-panel] {
+      position: absolute;
+      top: 0;
+      right: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      width: min(460px, 100vw);
+      height: 100%;
+      background: linear-gradient(180deg, #f8fafc 0%, #eef6ff 100%);
+      box-shadow: -24px 0 60px rgba(15, 23, 42, 0.2);
+      border-left: 1px solid rgba(148, 163, 184, 0.35);
+    }
+
+    ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-header] {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(203, 213, 225, 0.9);
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(10px);
+    }
+
+    ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-title] > p {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-title] > span {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #64748b;
+    }
+
+    ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-close] {
+      border: 0;
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: #0f172a;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-content] {
+      overflow: auto;
+      padding: 18px;
+    }
+
+    @media (max-width: 640px) {
+      ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-panel] {
+        width: 100vw;
+      }
+
+      ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-header] {
+        padding: 16px 14px 12px;
+      }
+
+      ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-content] {
+        padding: 14px;
+      }
+    }
+  `
+
+  document.head.appendChild(style)
+}
+
+function handleGlobalKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !standaloneShell || standaloneShell.hidden) {
+    return
+  }
+
+  closeStandaloneEncryptionPanel({ unmount: true })
 }
 
 function isPostEditorPage(): boolean {
@@ -178,20 +342,32 @@ function isPostEditorPage(): boolean {
   return pathCandidates.some((value) => /\/posts\/editor(?:[/?#]|$)/.test(value))
 }
 
-function findEditorSettingsButton(): HTMLElement | null {
-  return findLabeledElement(SETTINGS_LABELS)
+function getEditorRouteKey(): string {
+  const search = new URLSearchParams(window.location.search)
+  const hash = window.location.hash || ''
+  const hashQueryIndex = hash.indexOf('?')
+  const hashSearch = hashQueryIndex >= 0 ? hash.slice(hashQueryIndex + 1) : ''
+
+  return [
+    window.location.pathname,
+    search.get('name') ?? '',
+    search.get('postName') ?? '',
+    hashSearch,
+  ].join('|')
 }
 
-function findLabeledElement(labels: string[]): HTMLElement | null {
+function findEditorSettingsButton(): HTMLElement | null {
+  return findLabeledButton(['Settings', '设置'])
+}
+
+function findLabeledButton(labels: string[]): HTMLElement | null {
   const expectedLabels = new Set(labels.map((label) => normalizeText(label)))
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>(
-    'button, [role="button"], [role="tab"], .tabbar-item'
-  ))
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>('button, [role="button"]'))
 
   const matched = candidates
     .filter((element) => !element.matches(EDITOR_ENTRY_SELECTOR))
     .filter((element) => expectedLabels.has(readElementLabel(element)))
-    .sort((left, right) => scoreLabeledElement(right) - scoreLabeledElement(left))
+    .sort((left, right) => scoreElement(right) - scoreElement(left))
 
   return matched[0] ?? null
 }
@@ -217,19 +393,20 @@ function readElementLabel(element: HTMLElement): string {
   return ''
 }
 
-function scoreLabeledElement(element: HTMLElement): number {
-  let score = isReachableElement(element) ? 10 : 0
+function scoreElement(element: HTMLElement): number {
+  let score = 0
 
   if (element.tagName === 'BUTTON') {
-    score += 4
+    score += 3
   }
 
-  const context = collectAncestorClassNames(element)
-  if (/\beditor\b/i.test(context)) {
+  const classContext = collectAncestorClassNames(element)
+  if (/\beditor\b/i.test(classContext)) {
     score += 2
   }
-  if (/\btab\b/i.test(context) || /\btabs\b/i.test(context) || /\btabbar\b/i.test(context)) {
-    score += 1
+
+  if (isReachableElement(element)) {
+    score += 10
   }
 
   return score
@@ -247,28 +424,6 @@ function collectAncestorClassNames(element: HTMLElement): string {
   }
 
   return classNames.join(' ')
-}
-
-async function waitForAnnotationPanel(): Promise<HTMLElement | null> {
-  for (let attempt = 0; attempt < TOOL_WAIT_ATTEMPTS; attempt += 1) {
-    const panel = findReachableAnnotationPanel()
-    if (panel) {
-      return panel
-    }
-
-    await sleep(TOOL_WAIT_INTERVAL_MS)
-  }
-
-  return findReachableAnnotationPanel()
-}
-
-function findReachableAnnotationPanel(): HTMLElement | null {
-  const candidates = [
-    ...document.querySelectorAll<HTMLElement>(TOOL_PANEL_SELECTOR),
-    ...document.querySelectorAll<HTMLElement>(TOOL_SELECTOR),
-  ]
-
-  return candidates.find((candidate) => isReachableElement(candidate)) ?? null
 }
 
 function isReachableElement(element: HTMLElement): boolean {
@@ -290,32 +445,35 @@ function isReachableElement(element: HTMLElement): boolean {
   return true
 }
 
-function focusAnnotationPanel(target: HTMLElement): void {
-  target.scrollIntoView?.({
-    behavior: 'smooth',
-    block: 'start',
-    inline: 'nearest',
-  })
-
-  const previousTimeout = attentionTimeouts.get(target)
-  if (previousTimeout) {
-    window.clearTimeout(previousTimeout)
+function findBundleField(): HTMLInputElement | HTMLTextAreaElement | null {
+  const element = document.getElementById(INTERNAL_BUNDLE_FIELD_ID)
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    return element
   }
 
-  target.dataset.hppAttention = 'true'
-  const timeoutId = window.setTimeout(() => {
-    delete target.dataset.hppAttention
-    attentionTimeouts.delete(target)
-  }, TOOL_ATTENTION_TIMEOUT_MS)
-  attentionTimeouts.set(target, timeoutId)
+  if (!element) {
+    return null
+  }
+
+  const nested = element.querySelector('textarea, input')
+  if (nested instanceof HTMLInputElement || nested instanceof HTMLTextAreaElement) {
+    return nested
+  }
+
+  return null
+}
+
+function findBundleFieldWrapper(field: HTMLInputElement | HTMLTextAreaElement): HTMLElement | null {
+  return field.closest('.formkit-outer')
+    ?? field.closest('.formkit-wrapper')
+    ?? field.parentElement
+}
+
+function hideElementBlock(element: HTMLElement): void {
+  element.style.display = 'none'
+  element.setAttribute('aria-hidden', 'true')
 }
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
-}
-
-function sleep(durationMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, durationMs)
-  })
 }
