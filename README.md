@@ -147,9 +147,9 @@ npm run build
 - 常规回归：`./gradlew check`
 - 打包 smoke check：`./gradlew smokeCheck`
 - 开发容器 smoke：`./scripts/dev-container-smoke.sh`
-- 一键本地验收（含 smoke、前端回归、后台恢复 e2e）：`./scripts/dev-container-acceptance.sh`
+- 一键本地验收（含 smoke、前端回归、登录态恢复与独立阅读页 e2e）：`./scripts/dev-container-acceptance.sh`
 - 安装 Playwright 浏览器：`./gradlew installPlaywrightUi`
-- 后台恢复 e2e：`./gradlew testE2eUi`
+- 登录态恢复与独立阅读页 e2e：`./gradlew testE2eUi`
 - UI 类型检查：`cd ui && npm run type-check`
 - UI 单测：`cd ui && npm run test:unit`
 - 插件完整构建：`./gradlew build`

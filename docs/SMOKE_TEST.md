@@ -33,6 +33,7 @@
 - reader 静态资源与私密路由挂载检查
 
 其中 `smokeCheck` 会先跑完整 `build`；而 `build` 又会包含 `check`，所以前端 `typeCheckUi` 和 `testUi` 也已经被间接覆盖。
+脚本会从 `settings.gradle` 读取 `rootProject.name` 来确认容器里的插件目录，再从 `src/main/resources/plugin.yaml` 读取 `metadata.name` 验证 `/plugins/<plugin-name>/assets/reader/*` 路径，不再依赖仓库目录名和插件标识刚好一致。
 
 如果脚本提示 `build mount is stale`，说明当前 Halo 开发容器已经不适合继续热重载。默认行为是直接停止并给出修复命令；只有在你明确接受重建容器时，才使用：
 
@@ -40,14 +41,14 @@
 RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 ```
 
-如果要验证后台登录、插件 Console 页面，以及一次真实的平台恢复口令重置，再执行：
+如果要验证后台登录、插件 Console 页面、一次真实的平台恢复口令重置，以及独立阅读页的公开解锁流程，再执行：
 
 ```bash
 ./gradlew installPlaywrightUi
 ./gradlew testE2eUi
 ```
 
-如果想把开发容器 smoke、前端回归和后台恢复 e2e 一次跑完，直接使用：
+如果想把开发容器 smoke、前端回归、登录态恢复和独立阅读页 e2e 一次跑完，直接使用：
 
 ```bash
 ./scripts/dev-container-acceptance.sh
@@ -57,6 +58,11 @@ RECREATE_CONTAINER_ON_STALE_MOUNT=1 ./scripts/dev-container-smoke.sh
 
 - `./scripts/dev-container-smoke.sh`
 - `./gradlew testE2eUi`
+
+其中 `testE2eUi` 当前覆盖两条主链路：
+
+- 后台登录后，通过平台恢复能力重置已加锁文章的访问口令
+- 访问公开的 `/private-posts?slug=...` 独立阅读页，并验证错误口令失败、正确口令解锁成功
 
 默认会使用：
 

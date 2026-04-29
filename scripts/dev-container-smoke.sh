@@ -5,7 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HALO_BASE_URL="${HALO_BASE_URL:-http://localhost:8090}"
 HALO_CONTAINER_NAME="${HALO_CONTAINER_NAME:-halo-for-plugin-development}"
 HALO_WAIT_SECONDS="${HALO_WAIT_SECONDS:-120}"
-PLUGIN_DIR_NAME="${PLUGIN_DIR_NAME:-$(basename "$ROOT_DIR")}"
+GRADLE_SETTINGS_PATH="${GRADLE_SETTINGS_PATH:-${ROOT_DIR}/settings.gradle}"
+PLUGIN_MANIFEST_PATH="${PLUGIN_MANIFEST_PATH:-${ROOT_DIR}/src/main/resources/plugin.yaml}"
+PLUGIN_DIR_NAME="${PLUGIN_DIR_NAME:-$(awk -F"'" '/^rootProject.name *=/ {print $2; exit}' "$GRADLE_SETTINGS_PATH" 2>/dev/null || basename "$ROOT_DIR")}"
+PLUGIN_NAME="${PLUGIN_NAME:-$(awk '/^  name:/ {print $2; exit}' "$PLUGIN_MANIFEST_PATH" 2>/dev/null || printf '%s' "$PLUGIN_DIR_NAME")}"
 ENSURE_CONTAINER="${ENSURE_CONTAINER:-1}"
 RELOAD_PLUGIN="${RELOAD_PLUGIN:-1}"
 RUN_BUILD_SMOKE="${RUN_BUILD_SMOKE:-1}"
@@ -87,6 +90,8 @@ main() {
   log "Workspace: ${ROOT_DIR}"
   log "Halo base URL: ${HALO_BASE_URL}"
   log "Halo container: ${HALO_CONTAINER_NAME}"
+  log "Plugin dir: ${PLUGIN_DIR_NAME}"
+  log "Plugin name: ${PLUGIN_NAME}"
 
   if [[ "$RUN_BUILD_SMOKE" == "1" ]]; then
     log "Running Gradle smokeCheck"
@@ -132,8 +137,8 @@ main() {
   fi
 
   log "Waiting for public reader assets"
-  wait_for_url "${HALO_BASE_URL}/plugins/halo-private-posts/assets/reader/reader.js" "200"
-  wait_for_url "${HALO_BASE_URL}/plugins/halo-private-posts/assets/reader/reader.css" "200"
+  wait_for_url "${HALO_BASE_URL}/plugins/${PLUGIN_NAME}/assets/reader/reader.js" "200"
+  wait_for_url "${HALO_BASE_URL}/plugins/${PLUGIN_NAME}/assets/reader/reader.css" "200"
 
   log "Checking private post routes are mounted"
   assert_url_status "${HALO_BASE_URL}/private-posts?slug=missing-slug" "404"

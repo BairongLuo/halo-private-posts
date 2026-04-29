@@ -3,6 +3,7 @@ import {
   test,
   type APIRequestContext,
   type APIResponse,
+  type BrowserContext,
   type Page,
 } from '@playwright/test'
 
@@ -17,10 +18,13 @@ import type {
   SiteRecoveryPublicKey,
 } from '../src/types/private-post'
 
+const baseURL = process.env.HALO_BASE_URL ?? 'http://localhost:8090'
 const adminUsername = process.env.HALO_E2E_USERNAME ?? 'admin'
 const adminPassword = process.env.HALO_E2E_PASSWORD ?? 'Admin12345!'
+const adminAuthorization = `Basic ${Buffer.from(`${adminUsername}:${adminPassword}`).toString('base64')}`
 const keepSeedData = process.env.HALO_E2E_KEEP_DATA === '1'
 const privatePostBundleAnnotation = 'privateposts.halo.run/bundle'
+const postPublishedLabel = 'content.halo.run/published'
 const requestTimeoutMs = 15_000
 const defaultWaitTimeoutMs = 15_000
 const defaultWaitIntervalMs = 250
@@ -33,6 +37,7 @@ interface HaloPost {
   spec: {
     slug: string
     title: string
+    publishTime?: string
   }
 }
 
@@ -40,14 +45,20 @@ interface SeededPrivatePost {
   name: string
   slug: string
   title: string
+  body: string
   document: DecryptedPrivatePostDocument
   initialBundle: EncryptedPrivatePostBundle
   initialPassword: string
   nextPassword: string
 }
 
-test.describe('Halo Private Posts console auth', () => {
-  test('logs in as console admin and resets a seeded private post password', async ({ page }) => {
+interface SeedPrivatePostOptions {
+  publish?: boolean
+  body?: string
+}
+
+test.describe('Halo Private Posts e2e', () => {
+  test('logs in as console admin and resets a seeded private post password', async ({ page, request }) => {
     test.slow()
 
     await openConsoleRoot(page)
@@ -57,11 +68,10 @@ test.describe('Halo Private Posts console auth', () => {
     await loginToConsole(page)
     await openPrivatePostsPage(page)
 
-    const api = page.context().request
     let seededPrivatePost: SeededPrivatePost | null = null
 
     try {
-      seededPrivatePost = await seedPrivatePost(api)
+      seededPrivatePost = await seedPrivatePost(request)
       await page.getByRole('button', { name: '刷新列表' }).click()
       await expect(
         page.getByRole('button', { name: seededPrivatePost.title, exact: true })
@@ -80,7 +90,7 @@ test.describe('Halo Private Posts console auth', () => {
       await expect(page.getByText('访问口令已通过平台恢复能力重置。')).toBeVisible()
 
       const updatedPrivatePost = await waitForPrivatePost(
-        api,
+        request,
         seededPrivatePost.name,
         (privatePost) => hasBundleChanged(privatePost.spec.bundle, seededPrivatePost.initialBundle)
       )
@@ -94,7 +104,56 @@ test.describe('Halo Private Posts console auth', () => {
       ).resolves.toMatchObject(seededPrivatePost.document)
     } finally {
       if (seededPrivatePost) {
-        await cleanupSeededPrivatePost(api, seededPrivatePost.name)
+        await cleanupSeededPrivatePost(request, seededPrivatePost.name)
+      }
+    }
+  })
+
+  test('unlocks a published private post from the standalone reader page', async ({ browser, request }) => {
+    test.slow()
+
+    let seededPrivatePost: SeededPrivatePost | null = null
+    let publicContext: BrowserContext | null = null
+
+    try {
+      seededPrivatePost = await seedPrivatePost(request, {
+        publish: true,
+        body: `Reader secret body ${crypto.randomUUID().slice(0, 8)}`,
+      })
+      await waitForUrlStatus(
+        request,
+        `/private-posts/data?slug=${encodeURIComponent(seededPrivatePost.slug)}`,
+        200
+      )
+      await waitForUrlStatus(
+        request,
+        `/private-posts?slug=${encodeURIComponent(seededPrivatePost.slug)}`,
+        200
+      )
+
+      publicContext = await browser.newContext({
+        baseURL,
+      })
+
+      const publicPage = await publicContext.newPage()
+      await publicPage.goto(`/private-posts?slug=${encodeURIComponent(seededPrivatePost.slug)}`)
+
+      await expect(publicPage.getByRole('heading', { name: seededPrivatePost.title })).toBeVisible()
+      await expect(publicPage.getByText('输入访问密码后，正文会在浏览器本地解密。')).toBeVisible()
+
+      await publicPage.getByLabel('访问密码').fill(`${seededPrivatePost.initialPassword}-wrong`)
+      await publicPage.getByRole('button', { name: '用密码解锁' }).click()
+      await expect(publicPage.getByText('访问密码错误，或密文已损坏')).toBeVisible()
+
+      await publicPage.getByLabel('访问密码').fill(seededPrivatePost.initialPassword)
+      await publicPage.getByRole('button', { name: '用密码解锁' }).click()
+
+      await expect(publicPage.locator('[data-hpp-lock-panel]')).toBeHidden()
+      await expect(publicPage.locator('[data-hpp-content]')).toContainText(seededPrivatePost.body)
+    } finally {
+      await publicContext?.close()
+      if (seededPrivatePost) {
+        await cleanupSeededPrivatePost(request, seededPrivatePost.name)
       }
     }
   })
@@ -124,26 +183,33 @@ async function openPrivatePostsPage(page: Page): Promise<void> {
   await expect(page.getByText('后台只保留平台恢复重置入口')).toBeVisible()
 }
 
-async function seedPrivatePost(api: APIRequestContext): Promise<SeededPrivatePost> {
+async function seedPrivatePost(
+  api: APIRequestContext,
+  options: SeedPrivatePostOptions = {}
+): Promise<SeededPrivatePost> {
   const seedSuffix = crypto.randomUUID().slice(0, 8)
   const slug = `e2e-private-post-${seedSuffix}`
   const title = `E2E Private Post ${seedSuffix}`
+  const body = options.body ?? `# ${title}\n\nSeed ${seedSuffix} for site recovery reset.`
+  const publishTime = options.publish ? new Date().toISOString() : undefined
   const initialPassword = `Init#${seedSuffix}A1`
   const nextPassword = `Reset#${seedSuffix}B2`
   const createdPost = await createHaloPost(api, {
     slug,
     title,
     excerpt: `E2E excerpt ${seedSuffix}`,
+    publish: options.publish ?? false,
+    publishTime,
   })
   const document: DecryptedPrivatePostDocument = {
     metadata: {
       slug,
       title,
       excerpt: `E2E excerpt ${seedSuffix}`,
-      published_at: createdPost.metadata.creationTimestamp,
+      published_at: publishTime ?? createdPost.metadata.creationTimestamp,
     },
     payload_format: 'markdown',
-    content: `# ${title}\n\nSeed ${seedSuffix} for site recovery reset.`,
+    content: body,
   }
 
   try {
@@ -156,7 +222,7 @@ async function seedPrivatePost(api: APIRequestContext): Promise<SeededPrivatePos
       slug,
       title,
       excerpt: document.metadata.excerpt ?? '',
-      publishedAt: createdPost.metadata.creationTimestamp,
+      publishedAt: publishTime ?? createdPost.metadata.creationTimestamp,
       bundle: initialBundle,
     })
     await waitForPrivatePost(
@@ -169,6 +235,7 @@ async function seedPrivatePost(api: APIRequestContext): Promise<SeededPrivatePos
       name: createdPost.metadata.name,
       slug,
       title,
+      body,
       document,
       initialBundle,
       initialPassword,
@@ -186,15 +253,25 @@ async function createHaloPost(
     slug: string
     title: string
     excerpt: string
+    publish: boolean
+    publishTime?: string
   }
 ): Promise<HaloPost> {
   const response = await api.post('/apis/content.halo.run/v1alpha1/posts', {
     timeout: requestTimeoutMs,
+    headers: adminHeaders(),
     data: {
       apiVersion: 'content.halo.run/v1alpha1',
       kind: 'Post',
       metadata: {
         generateName: 'e2e-private-post-',
+        ...(seed.publish
+          ? {
+              labels: {
+                [postPublishedLabel]: 'true',
+              },
+            }
+          : {}),
       },
       spec: {
         allowComment: true,
@@ -205,7 +282,8 @@ async function createHaloPost(
         },
         pinned: false,
         priority: 0,
-        publish: false,
+        publish: seed.publish,
+        ...(seed.publishTime ? { publishTime: seed.publishTime } : {}),
         slug: seed.slug,
         title: seed.title,
         visible: 'PUBLIC',
@@ -219,6 +297,7 @@ async function createHaloPost(
 async function fetchSiteRecoveryPublicKey(api: APIRequestContext): Promise<SiteRecoveryPublicKey> {
   const response = await api.get('/apis/api.console.halo.run/v1alpha1/private-posts/site-recovery-key', {
     timeout: requestTimeoutMs,
+    headers: adminHeaders(),
   })
   return await readJson(response, 'fetch site recovery public key')
 }
@@ -232,9 +311,9 @@ async function patchPrivatePostBundle(
     `/apis/content.halo.run/v1alpha1/posts/${encodeURIComponent(postName)}`,
     {
       timeout: requestTimeoutMs,
-      headers: {
+      headers: adminHeaders({
         'Content-Type': 'application/json-patch+json',
-      },
+      }),
       data: [
         {
           op: 'add',
@@ -268,6 +347,7 @@ async function ensurePrivatePostMirror(
 
   const response = await api.post('/apis/privateposts.halo.run/v1alpha1/privateposts', {
     timeout: requestTimeoutMs,
+    headers: adminHeaders(),
     data: {
       apiVersion: 'privateposts.halo.run/v1alpha1',
       kind: 'PrivatePost',
@@ -318,6 +398,30 @@ async function waitForPrivatePost(
   )
 }
 
+async function waitForUrlStatus(
+  api: APIRequestContext,
+  path: string,
+  expectedStatus: number,
+  timeoutMs = defaultWaitTimeoutMs
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let lastStatus: number | null = null
+
+  while (Date.now() <= deadline) {
+    const response = await api.get(path, {
+      timeout: requestTimeoutMs,
+    })
+    lastStatus = response.status()
+    if (lastStatus === expectedStatus) {
+      return
+    }
+
+    await delay(defaultWaitIntervalMs)
+  }
+
+  throw new Error(`Timed out waiting for ${path} to return ${expectedStatus}. Last status: ${lastStatus}`)
+}
+
 async function fetchPrivatePost(
   api: APIRequestContext,
   postName: string
@@ -326,6 +430,7 @@ async function fetchPrivatePost(
     `/apis/privateposts.halo.run/v1alpha1/privateposts/${encodeURIComponent(postName)}`,
     {
       timeout: requestTimeoutMs,
+      headers: adminHeaders(),
     }
   )
 
@@ -354,6 +459,7 @@ async function cleanupSeededPrivatePost(
 async function deleteIfExists(api: APIRequestContext, path: string): Promise<void> {
   const response = await api.delete(path, {
     timeout: requestTimeoutMs,
+    headers: adminHeaders(),
   })
   if (response.status() === 404) {
     return
@@ -373,6 +479,13 @@ async function assertOk(response: APIResponse, action: string): Promise<void> {
   }
 
   throw new Error(`${action} failed with ${response.status()}: ${await response.text()}`)
+}
+
+function adminHeaders(headers?: Record<string, string>): Record<string, string> {
+  return {
+    Authorization: adminAuthorization,
+    ...(headers ?? {}),
+  }
 }
 
 function hasBundleChanged(

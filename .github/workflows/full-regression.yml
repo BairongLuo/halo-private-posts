@@ -9,6 +9,7 @@ permissions:
 jobs:
   acceptance:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -30,12 +31,18 @@ jobs:
           HALO_E2E_PASSWORD: Admin12345!
         run: ./scripts/dev-container-acceptance.sh
 
+      - name: Collect Halo dev container logs
+        if: failure()
+        run: docker logs halo-for-plugin-development > halo-dev-container.log 2>&1 || true
+
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-artifacts
+          name: full-regression-artifacts
           if-no-files-found: ignore
           path: |
+            halo-dev-container.log
+            build/reports/problems/
             ui/test-results/
             ui/playwright-report/
