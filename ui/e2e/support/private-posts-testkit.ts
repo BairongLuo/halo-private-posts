@@ -53,6 +53,12 @@ export interface SeededPrivatePost {
   nextPassword: string
 }
 
+export interface SeededPlainPost {
+  name: string
+  slug: string
+  title: string
+}
+
 interface SeedPrivatePostOptions {
   publish?: boolean
   body?: string
@@ -119,6 +125,24 @@ export async function seedPrivatePost(
   } catch (error) {
     await cleanupSeededPrivatePost(api, createdPost.metadata.name)
     throw error
+  }
+}
+
+export async function seedPlainPost(api: APIRequestContext): Promise<SeededPlainPost> {
+  const seedSuffix = randomUUID().slice(0, 8)
+  const slug = `e2e-plain-post-${seedSuffix}`
+  const title = `E2E Plain Post ${seedSuffix}`
+  const createdPost = await createHaloPost(api, {
+    slug,
+    title,
+    excerpt: `E2E plain excerpt ${seedSuffix}`,
+    publish: false,
+  })
+
+  return {
+    name: createdPost.metadata.name,
+    slug,
+    title,
   }
 }
 

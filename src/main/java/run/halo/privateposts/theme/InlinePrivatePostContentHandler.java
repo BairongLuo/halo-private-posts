@@ -89,10 +89,6 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
                         </button>
                       </div>
                     </form>
-                    <p class="hpp-hint">
-                      正文解锁后会在离开页面、切后台或空闲超时后自动重新锁定。
-                      <a class="hpp-link" href="%s">独立阅读页</a>
-                    </p>
                   </div>
                   <article class="hpp-content" data-hpp-content hidden></article>
                 </div>
@@ -100,7 +96,6 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
               <noscript>
                 <p>
                   此页面需要 JavaScript 才能在当前页面中本地解密正文。
-                  <a class="hpp-link" href="%s">打开独立阅读页</a>
                 </p>
               </noscript>
             </section>
@@ -109,9 +104,7 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
             IDLE_TIMEOUT_MS,
             safeExcerpt,
             escape(postName),
-            escape(postName),
-            escape("/private-posts?slug=" + encodedSlug),
-            escape("/private-posts?slug=" + encodedSlug)
+            escape(postName)
         );
     }
 

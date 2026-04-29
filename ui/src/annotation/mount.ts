@@ -237,7 +237,6 @@ function ensureStandaloneShell(): HTMLElement {
       <header data-hpp-standalone-header="true">
         <div data-hpp-standalone-title="true">
           <p>文章加密</p>
-          <span>独立于 Settings 的编辑页加密面板</span>
         </div>
         <button type="button" data-hpp-standalone-close="true" aria-label="关闭文章加密面板">
           关闭
@@ -321,14 +320,6 @@ function ensureStandaloneShellStyles(): void {
       font-size: 16px;
       font-weight: 800;
       color: #0f172a;
-    }
-
-    ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-title] > span {
-      display: block;
-      margin-top: 4px;
-      font-size: 12px;
-      line-height: 1.5;
-      color: #64748b;
     }
 
     ${STANDALONE_SHELL_SELECTOR} [data-hpp-standalone-close] {

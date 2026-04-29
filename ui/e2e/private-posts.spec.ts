@@ -14,7 +14,9 @@ import {
   baseURL,
   cleanupSeededPrivatePost,
   expectNoStoreHeader,
+  seedPlainPost,
   seedPrivatePost,
+  type SeededPlainPost,
   type SeededPrivatePost,
   waitForPrivatePost,
   waitForUrlStatus,
@@ -57,6 +59,39 @@ test.describe('Halo Private Posts e2e', () => {
     } finally {
       if (seededPrivatePost) {
         await cleanupSeededPrivatePost(request, seededPrivatePost.name)
+      }
+    }
+  })
+
+  test('opens the standalone editor panel when the unlocked status tag is clicked', async ({ page, request }) => {
+    test.slow()
+
+    let seededPlainPost: SeededPlainPost | null = null
+
+    try {
+      seededPlainPost = await seedPlainPost(request)
+
+      await loginToConsole(page)
+      await openPostsListPage(page)
+
+      const row = page.getByRole('row', {
+        name: new RegExp(`${escapeRegExp(seededPlainPost.title)}[\\s\\S]*未加锁`),
+      })
+      await expect(row).toBeVisible()
+
+      await Promise.all([
+        page.waitForURL(
+          new RegExp(`/console/posts/editor\\?name=${escapeRegExp(seededPlainPost.name)}(?:$|&)`)
+        ),
+        row.getByRole('button', { name: '未加锁' }).click(),
+      ])
+
+      await expect(page).not.toHaveURL(/hppOpenEncryption=/)
+      await expect(page.locator('[data-hpp-standalone-shell]')).toBeVisible()
+      await expect(page.locator('[data-hpp-standalone-content]')).toBeVisible()
+    } finally {
+      if (seededPlainPost) {
+        await cleanupSeededPrivatePost(request, seededPlainPost.name)
       }
     }
   })

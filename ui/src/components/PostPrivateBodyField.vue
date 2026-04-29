@@ -7,6 +7,7 @@ import {
   findPrivatePostByPostName,
   privatePostRegistryLoaded,
 } from '@/stores/private-post-registry'
+import { openPostEncryptionEditor } from '@/utils/open-post-encryption-editor'
 
 const props = defineProps<{
   postName: string
@@ -28,13 +29,25 @@ const statusTheme = computed(() => {
 const statusLabel = computed(() => {
   return matchedPrivatePost.value ? '已加锁' : '未加锁'
 })
+
+function handleClick(): void {
+  openPostEncryptionEditor(props.postName)
+}
 </script>
 
 <template>
   <div class="private-post-field">
-    <VTag v-if="privatePostRegistryLoaded" :theme="statusTheme" rounded>
-      {{ statusLabel }}
-    </VTag>
+    <button
+      v-if="privatePostRegistryLoaded"
+      type="button"
+      class="private-post-field-button"
+      :title="`打开${statusLabel}文章的加密面板`"
+      @click.stop="handleClick"
+    >
+      <VTag :theme="statusTheme" rounded>
+        {{ statusLabel }}
+      </VTag>
+    </button>
   </div>
 </template>
 
@@ -43,5 +56,20 @@ const statusLabel = computed(() => {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.private-post-field-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.private-post-field-button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 999px;
 }
 </style>

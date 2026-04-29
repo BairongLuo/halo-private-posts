@@ -202,7 +202,7 @@ async function bootReader(element: HTMLElement) {
 
       revealContent(
         renderedHtml,
-        '正文已在浏览器中解密。切后台、离开页面或空闲超时后会重新锁定。'
+        '正文已在浏览器中解密。'
       )
     } catch (error) {
       setStatus(status, 'error', toMessage(error))

@@ -5,6 +5,7 @@ import type { RouteLocationNormalizedLoaded } from 'vue-router'
 import { installPrivatePostAnnotationTool } from './annotation/mount'
 import PostEncryptionOperationItem from './components/PostEncryptionOperationItem.vue'
 import PostPrivateBodyField from './components/PostPrivateBodyField.vue'
+import { openPostEncryptionEditor } from './utils/open-post-encryption-editor'
 import PrivatePostsView from './views/PrivatePostsView.vue'
 
 installPrivatePostAnnotationTool()
@@ -59,14 +60,3 @@ export default definePlugin({
     },
   ],
 })
-
-function openPostEncryptionEditor(postName: string): void {
-  if (typeof window === 'undefined' || !postName) {
-    return
-  }
-
-  const nextUrl = new URL('/console/posts/editor', window.location.origin)
-  nextUrl.searchParams.set('name', postName)
-  nextUrl.searchParams.set('hppOpenEncryption', '1')
-  window.location.assign(nextUrl.toString())
-}
