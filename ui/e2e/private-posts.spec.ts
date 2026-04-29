@@ -56,6 +56,7 @@ test.describe('Halo Private Posts e2e', () => {
       await expect(page).not.toHaveURL(/hppOpenEncryption=/)
       await expect(page.locator('[data-hpp-standalone-shell]')).toBeVisible()
       await expect(page.locator('[data-hpp-standalone-content]')).toBeVisible()
+      await expect(page.getByText('独立于 Settings 的编辑页加密面板')).toHaveCount(0)
     } finally {
       if (seededPrivatePost) {
         await cleanupSeededPrivatePost(request, seededPrivatePost.name)
@@ -89,6 +90,7 @@ test.describe('Halo Private Posts e2e', () => {
       await expect(page).not.toHaveURL(/hppOpenEncryption=/)
       await expect(page.locator('[data-hpp-standalone-shell]')).toBeVisible()
       await expect(page.locator('[data-hpp-standalone-content]')).toBeVisible()
+      await expect(page.getByText('独立于 Settings 的编辑页加密面板')).toHaveCount(0)
     } finally {
       if (seededPlainPost) {
         await cleanupSeededPrivatePost(request, seededPlainPost.name)
@@ -185,7 +187,7 @@ test.describe('Halo Private Posts e2e', () => {
       await publicPage.goto(`/private-posts?slug=${encodeURIComponent(seededPrivatePost.slug)}`)
 
       await expect(publicPage.getByRole('heading', { name: seededPrivatePost.title })).toBeVisible()
-      await expect(publicPage.getByText('输入访问密码后，正文会在浏览器本地解密。')).toBeVisible()
+      await expect(publicPage.getByText('输入访问密码后，正文会在浏览器本地解密。')).toHaveCount(0)
 
       await publicPage.getByLabel('访问密码').fill(`${seededPrivatePost.initialPassword}-wrong`)
       await publicPage.getByRole('button', { name: '用密码解锁' }).click()

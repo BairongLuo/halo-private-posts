@@ -69,9 +69,7 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
                 <div class="hpp-panel">
                   <div class="hpp-lock" data-hpp-lock-panel>
                     %s
-                    <p class="hpp-status" data-hpp-status data-status="neutral">
-                      这篇文章的正文已加密托管。输入访问密码后，正文会在浏览器本地解密。
-                    </p>
+                    <p class="hpp-status" data-hpp-status data-status="neutral" hidden></p>
                     <form class="hpp-form" data-hpp-form>
                       <label class="hpp-label" for="hpp-password-%s">
                         访问密码

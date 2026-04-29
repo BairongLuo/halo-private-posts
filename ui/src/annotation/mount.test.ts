@@ -116,6 +116,7 @@ describe('annotation mount helpers', () => {
     expect(settingsClickHandler).not.toHaveBeenCalled()
     expect(shell).not.toBeNull()
     expect(shell?.hidden).toBe(false)
+    expect(shell?.textContent).not.toContain('独立于 Settings 的编辑页加密面板')
     expect(panel).not.toBeNull()
     expect(createAppMock).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -231,6 +231,7 @@ async function fetchPrivatePostView(bundleUrl: string): Promise<PrivatePostView>
 function setStatus(element: HTMLElement, state: 'neutral' | 'success' | 'error', message: string) {
   element.dataset.status = state
   element.textContent = message
+  element.hidden = message.length === 0
 }
 
 function resolveThemedInlineHost(element: HTMLElement, layout: string): HTMLElement | null {
