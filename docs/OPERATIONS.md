@@ -39,6 +39,14 @@
    - 原文章页仍显示锁定态
    - 新口令重置后旧口令失效
 
+## 发版资产
+
+- 本地手工打包时，使用 `./gradlew smokeCheck`，确认 `build/libs/halo-private-posts-<version>.jar` 已产出。
+- GitHub Actions 已提供 `.github/workflows/release.yml`：
+  - 手动触发时会构建插件 JAR 并上传 artifact
+  - 推送 `v*` tag 时会额外生成 `SHA256SUMS` 并创建 GitHub Release
+- 建议只在 `./scripts/dev-container-acceptance.sh` 已通过后再执行正式发版。
+
 ## 回滚
 
 - 不要回滚到旧的 `v2 / 助记词恢复` 时代版本。当前仓库只保证 `v3`。

@@ -151,12 +151,14 @@ npm run build
 - 安装 Playwright 浏览器：`./gradlew installPlaywrightUi`
 - 登录态恢复与独立阅读页 e2e：`./gradlew testE2eUi`
 - 卸载清理 smoke：`./scripts/dev-container-uninstall-smoke.sh`
+- 发版构建 workflow：`.github/workflows/release.yml`
 - UI 类型检查：`cd ui && npm run type-check`
 - UI 单测：`cd ui && npm run test:unit`
 - 插件完整构建：`./gradlew build`
 
 `./scripts/dev-container-acceptance.sh` 默认也会补跑一次卸载演练；如需只跑常规链路，可临时使用 `RUN_UNINSTALL_SMOKE=0 ./scripts/dev-container-acceptance.sh`。
 如果要在 GitHub Actions 上手动跑完整链路，可触发 `.github/workflows/full-regression.yml`。
+如果要生成正式发布资产，可手动触发 `.github/workflows/release.yml`，或直接推送 `v*` tag；它会执行 `./gradlew smokeCheck`、产出插件 JAR、生成 `SHA256SUMS`，并在 tag 场景下创建 GitHub Release。
 
 ## 站点上线
 
