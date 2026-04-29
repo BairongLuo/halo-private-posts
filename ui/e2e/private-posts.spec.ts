@@ -130,6 +130,14 @@ test.describe('Halo Private Posts e2e', () => {
         `/private-posts?slug=${encodeURIComponent(seededPrivatePost.slug)}`,
         200
       )
+      await expectNoStoreHeader(
+        request,
+        `/private-posts/data?slug=${encodeURIComponent(seededPrivatePost.slug)}`
+      )
+      await expectNoStoreHeader(
+        request,
+        `/private-posts?slug=${encodeURIComponent(seededPrivatePost.slug)}`
+      )
 
       publicContext = await browser.newContext({
         baseURL,
@@ -420,6 +428,22 @@ async function waitForUrlStatus(
   }
 
   throw new Error(`Timed out waiting for ${path} to return ${expectedStatus}. Last status: ${lastStatus}`)
+}
+
+async function expectNoStoreHeader(
+  api: APIRequestContext,
+  path: string
+): Promise<void> {
+  const response = await api.get(path, {
+    timeout: requestTimeoutMs,
+  })
+  const cacheControl = response.headers()['cache-control'] ?? ''
+
+  if (!cacheControl.includes('no-store')) {
+    throw new Error(
+      `Expected ${path} to return Cache-Control containing no-store, got ${cacheControl || '<missing>'}`
+    )
+  }
 }
 
 async function fetchPrivatePost(
