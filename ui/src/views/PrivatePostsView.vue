@@ -244,7 +244,7 @@ function toMessage(error: unknown) {
           <p class="eyebrow">Halo Private Posts</p>
           <h1>平台恢复重置口令</h1>
           <p class="summary">
-            这是临时保留的后台恢复页。日常加锁、重加锁和取消加锁都应在文章列表三点菜单或文章编辑页顶部的“文章加密”入口中完成。
+            这是临时保留的后台恢复页。日常加锁、重加锁和取消加锁都应在文章列表状态标签或文章编辑页顶部的“文章加密”入口中完成。
           </p>
         </div>
         <div class="hero-actions">

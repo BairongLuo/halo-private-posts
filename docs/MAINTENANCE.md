@@ -15,7 +15,7 @@
 
 ## 主要入口
 
-`ui/src/annotation/PrivatePostAnnotationTool.vue` 是文章列表三点菜单和文章编辑页顶部两处“文章加密”入口背后的统一加锁面板。现在的加锁动作是在这里读取当前文章已保存的 Markdown 或 HTML 正文、生成 `v3 bundle`、写回文章注解，并同时写入 `password_slot` 和 `site_recovery_slot`。
+`ui/src/annotation/PrivatePostAnnotationTool.vue` 是文章列表状态标签和文章编辑页顶部两处“文章加密”入口背后的统一加锁面板。现在的加锁动作是在这里读取当前文章已保存的 Markdown 或 HTML 正文、生成 `v3 bundle`、写回文章注解，并同时写入 `password_slot` 和 `site_recovery_slot`。
 
 当前顺序要记准：
 

@@ -3,9 +3,7 @@ import { markRaw } from 'vue'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 
 import { installPrivatePostAnnotationTool } from './annotation/mount'
-import PostEncryptionOperationItem from './components/PostEncryptionOperationItem.vue'
 import PostPrivateBodyField from './components/PostPrivateBodyField.vue'
-import { openPostEncryptionEditor } from './utils/open-post-encryption-editor'
 import PrivatePostsView from './views/PrivatePostsView.vue'
 
 installPrivatePostAnnotationTool()
@@ -20,17 +18,6 @@ export default definePlugin({
         component: markRaw(PostPrivateBodyField),
         props: {
           postName: post.value.post.metadata.name,
-        },
-      },
-    ],
-    'post:list-item:operation:create': (post) => [
-      {
-        priority: 85,
-        component: markRaw(PostEncryptionOperationItem),
-        props: {
-          onSelect: () => {
-            openPostEncryptionEditor(post.value.post.metadata.name)
-          },
         },
       },
     ],

@@ -23,7 +23,7 @@ import {
 } from './support/private-posts-testkit'
 
 test.describe('Halo Private Posts e2e', () => {
-  test('shows the encryption entry in the posts list menu and opens the standalone editor panel', async ({ page, request }) => {
+  test('does not show the encryption entry in the posts list menu', async ({ page, request }) => {
     test.slow()
 
     let seededPrivatePost: SeededPrivatePost | null = null
@@ -42,21 +42,7 @@ test.describe('Halo Private Posts e2e', () => {
       await expect(row).toBeVisible()
 
       await row.locator('.entity-dropdown-trigger').click()
-
-      const operationItem = page.getByText('文章加密', { exact: true })
-      await expect(operationItem).toBeVisible()
-
-      await Promise.all([
-        page.waitForURL(
-          new RegExp(`/console/posts/editor\\?name=${escapeRegExp(seededPrivatePost.name)}(?:$|&)`)
-        ),
-        operationItem.click(),
-      ])
-
-      await expect(page).not.toHaveURL(/hppOpenEncryption=/)
-      await expect(page.locator('[data-hpp-standalone-shell]')).toBeVisible()
-      await expect(page.locator('[data-hpp-standalone-content]')).toBeVisible()
-      await expect(page.getByText('独立于 Settings 的编辑页加密面板')).toHaveCount(0)
+      await expect(page.getByText('文章加密', { exact: true })).toHaveCount(0)
     } finally {
       if (seededPrivatePost) {
         await cleanupSeededPrivatePost(request, seededPrivatePost.name)
