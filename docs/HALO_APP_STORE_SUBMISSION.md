@@ -6,14 +6,14 @@
 
 - 插件名：`halo-private-posts`
 - 仓库当前版本：`1.0.1`
-- 当前公开 Release 版本：`1.0.0`
-- 当前公开 Git tag：`v1.0.0`
+- 当前公开 Release 版本：`1.0.1`
+- 当前公开 Git tag：`v1.0.1`
 - Halo 兼容范围：`>=2.24.0`
 - GitHub 仓库：`https://github.com/BairongLuo/halo-private-posts`
-- 当前公开 GitHub Release：`https://github.com/BairongLuo/halo-private-posts/releases/tag/v1.0.0`
-- 当前公开 JAR 下载：`https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.0/halo-private-posts-1.0.0.jar`
-- 当前公开校验文件：`https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.0/SHA256SUMS`
-- 当前公开 SHA256：`c6568280d503136e6c308720dfe8b1d7b00b2c62ec08f13cfaad1eb21005678b`
+- 当前公开 GitHub Release：`https://github.com/BairongLuo/halo-private-posts/releases/tag/v1.0.1`
+- 当前公开 JAR 下载：`https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.1/halo-private-posts-1.0.1.jar`
+- 当前公开校验文件：`https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.1/SHA256SUMS`
+- 当前公开 SHA256：`53c1427c9aedb220c3142d581790679cbb12a1d3ee30627eec36a276d333430b`
 
 ## Halo 官方流程
 
@@ -33,13 +33,12 @@
   - `README.md`
   - `docs/OPERATIONS.md`
   - `docs/SMOKE_TEST.md`
-- 当前公开版本 `v1.0.0` 已完成 GitHub Release，且包含 JAR 与 `SHA256SUMS`。
+- 当前公开版本 `v1.0.1` 已完成 GitHub Release，且包含 JAR 与 `SHA256SUMS`。
 
 ## 仍需补充的信息
 
 - Halo 官网用户名：用于上架后转交应用管理权限。
 - 商店截图：官方文档没有硬性格式要求，但实际提审时建议准备文章列表状态、编辑页加密入口、前台解锁页等真实截图。
-- 如需提交 `1.0.1`，先发布对应 Release，再替换下方 PR 文案里的版本号、下载链接和 SHA256。
 
 ## 已补充的仓库元数据
 
@@ -71,11 +70,11 @@ TODO: 填写你的 Halo 官网用户名
 #### 补充说明
 
 - 插件名称：Halo Private Posts
-- 当前版本：v1.0.0
+- 当前版本：v1.0.1
 - 兼容 Halo：>=2.24.0
-- Release：https://github.com/BairongLuo/halo-private-posts/releases/tag/v1.0.0
-- 下载地址：https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.0/halo-private-posts-1.0.0.jar
-- SHA256：c6568280d503136e6c308720dfe8b1d7b00b2c62ec08f13cfaad1eb21005678b
+- Release：https://github.com/BairongLuo/halo-private-posts/releases/tag/v1.0.1
+- 下载地址：https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.1/halo-private-posts-1.0.1.jar
+- SHA256：53c1427c9aedb220c3142d581790679cbb12a1d3ee30627eec36a276d333430b
 - 简介：为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。
 
 ```release-note
