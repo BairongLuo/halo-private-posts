@@ -25,11 +25,11 @@ spec:
               color: #475569;
               font-size: 0.875rem;
               line-height: 1.6;
-          children: "正在加载私密正文加锁工具。如果长时间未显示，请刷新页面后重试。"
+          children: "正在加载文章加密工具。如果长时间未显示，请刷新页面后重试。"
     - $formkit: textarea
       id: hpp-annotation-bundle
       name: privateposts.halo.run/bundle
-      label: 私密正文内部密文（自动维护）
+      label: 文章加密内部密文（自动维护）
       placeholder: "{ ... 自动维护的加密 bundle ... }"
       rows: 14
-      help: "由上方加锁工具自动维护，请勿手动编辑。"
+      help: "由上方文章加密工具自动维护，请勿手动编辑。"

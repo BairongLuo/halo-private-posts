@@ -434,7 +434,7 @@ async function lockCurrentPost(): Promise<void> {
     confirmPassword.value = ''
     setActionMessage(
       'success',
-      syncMessage || '已基于当前已保存草稿正文加锁，并立即保存到文章设置，同时写入平台恢复槽。后续修改正文后请先保存文章，再重新加锁。'
+      syncMessage || '已基于当前已保存草稿正文加锁，并立即保存文章加密状态，同时写入平台恢复槽。后续修改正文后请先保存文章，再重新加锁。'
     )
   } catch (error) {
     if (annotationPersisted) {
@@ -486,7 +486,7 @@ async function clearBundle(): Promise<void> {
 
     setActionMessage(
       'neutral',
-      syncMessage || '已取消当前文章加锁，并立即保存到文章设置。'
+      syncMessage || '已取消当前文章加锁，并立即保存文章加密状态。'
     )
   } catch (error) {
     setActionMessage('invalid', toMessage(error))
@@ -627,12 +627,12 @@ async function syncCurrentPostName(): Promise<void> {
 </script>
 
 <template>
-  <section class="hpp-annotation-tool">
+  <section class="hpp-annotation-tool" data-hpp-annotation-panel="true">
     <div class="hpp-annotation-head">
       <div>
-        <p class="hpp-annotation-label">私密正文设置</p>
+        <p class="hpp-annotation-label">文章加密</p>
         <p class="hpp-annotation-help">
-          这里不会再维护第二份正文。插件会直接读取当前文章已保存的草稿正文，在浏览器本地加密后写回设置字段。
+          这里不会再维护第二份正文。插件会直接读取当前文章已保存的草稿正文，在浏览器本地加密后写回文章加密字段。
         </p>
       </div>
       <span class="hpp-annotation-badge" :data-tone="statusTone">
@@ -700,6 +700,13 @@ async function syncCurrentPostName(): Promise<void> {
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   padding: 16px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.hpp-annotation-tool[data-hpp-attention='true'] {
+  border-color: #0f766e;
+  box-shadow: 0 18px 40px rgba(15, 118, 110, 0.18);
+  transform: translateY(-1px);
 }
 
 .hpp-annotation-head {
