@@ -27,11 +27,7 @@ vi.mock('./PrivatePostAnnotationTool.vue', () => ({
   },
 }))
 
-import {
-  hideInternalAnnotationFields,
-  openPrivatePostAnnotationTool,
-  syncPrivatePostEditorEntry,
-} from './mount'
+import { syncPrivatePostAnnotationMount } from './mount'
 
 describe('annotation mount helpers', () => {
   beforeEach(() => {
@@ -43,109 +39,73 @@ describe('annotation mount helpers', () => {
     vi.restoreAllMocks()
   })
 
-  it('injects a single sibling entry next to the current editor toolbar anchor', () => {
+  it('mounts the annotation tool inside the settings slot', () => {
     window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
     document.body.innerHTML = `
       <div class="editor-toolbar">
-        <button class="toolbar-button">Preview</button>
-        <button class="toolbar-button">Settings</button>
-        <button class="toolbar-button">Add Cover</button>
-      </div>
-    `
-
-    syncPrivatePostEditorEntry()
-    syncPrivatePostEditorEntry()
-
-    const anchorButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Add Cover')
-    const injectedEntries = Array.from(document.querySelectorAll<HTMLButtonElement>(
-      '[data-hpp-editor-encryption-entry]'
-    ))
-
-    expect(anchorButton).not.toBeNull()
-    expect(injectedEntries).toHaveLength(1)
-    expect(injectedEntries[0].textContent).toBe('文章加密')
-    expect(injectedEntries[0].className).toBe('toolbar-button')
-    expect(injectedEntries[0].previousElementSibling).toBe(anchorButton)
-  })
-
-  it('falls back to a non-button Settings tab when no current toolbar anchor exists', () => {
-    window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
-    document.body.innerHTML = `
-      <div class="editor-toolbar tabs-wrapper">
-        <div class="tabbar-item">Outline</div>
-        <div class="tabbar-item" role="tab">Settings</div>
-      </div>
-    `
-
-    syncPrivatePostEditorEntry()
-
-    const settingsEntry = Array.from(document.querySelectorAll<HTMLElement>('[role="tab"], .tabbar-item'))
-      .find((element) => element.textContent === 'Settings')
-    const injectedEntry = document.querySelector<HTMLElement>('[data-hpp-editor-encryption-entry]')
-
-    expect(settingsEntry).not.toBeNull()
-    expect(injectedEntry).not.toBeNull()
-    expect(injectedEntry?.textContent).toBe('文章加密')
-    expect(injectedEntry?.tagName).toBe('DIV')
-    expect(injectedEntry?.getAttribute('role')).toBe('button')
-    expect(injectedEntry?.previousElementSibling).toBe(settingsEntry)
-  })
-
-  it('opens an independent encryption panel without clicking Settings', async () => {
-    window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
-    document.body.innerHTML = `
-      <div class="editor-toolbar">
-        <button class="toolbar-button">Preview</button>
         <button class="toolbar-button">Settings</button>
       </div>
+      <div data-hpp-annotation-tool-slot="true" id="annotation-slot"></div>
     `
 
-    syncPrivatePostEditorEntry()
+    syncPrivatePostAnnotationMount()
 
-    const settingsButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-      .find((button) => button.textContent === 'Settings')
-    const settingsClickHandler = vi.fn()
-    settingsButton?.addEventListener('click', settingsClickHandler)
+    const slot = document.getElementById('annotation-slot')
 
-    const opened = await openPrivatePostAnnotationTool()
-    const shell = document.querySelector<HTMLElement>('[data-hpp-standalone-shell]')
-    const panel = document.querySelector<HTMLElement>('[data-hpp-standalone-content]')
-
-    expect(opened).toBe(true)
-    expect(settingsClickHandler).not.toHaveBeenCalled()
-    expect(shell).not.toBeNull()
-    expect(shell?.hidden).toBe(false)
-    expect(shell?.textContent).not.toContain('独立于 Settings 的编辑页加密面板')
-    expect(panel).not.toBeNull()
     expect(createAppMock).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'PrivatePostAnnotationTool',
       }),
       {
         bundleFieldId: 'hpp-annotation-bundle',
-        standalone: true,
+        mountSelector: '[data-hpp-annotation-tool-slot]',
       }
     )
-    expect(mountMock).toHaveBeenCalledWith(panel)
+    expect(mountMock).toHaveBeenCalledWith(expect.any(HTMLElement))
+    const host = document.getElementById('hpp-annotation-tool-host')
+    expect(host).not.toBeNull()
+    expect(host?.parentElement).toBe(document.body)
+    expect(slot).not.toBeNull()
   })
 
-  it('hides the internal annotation hook and bundle field wrapper inside Settings', () => {
+  it('clicks Settings when the editor is opened from the list status tag', () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/console/posts/editor?name=demo-post&hppOpenEncryption=1'
+    )
     document.body.innerHTML = `
+      <div class="editor-toolbar tabs-wrapper">
+        <div class="tabbar-item" role="tab">Outline</div>
+        <div class="tabbar-item" role="tab">Settings</div>
+      </div>
+    `
+
+    const settingsButton = Array.from(document.querySelectorAll<HTMLElement>('[role="tab"]'))
+      .find((element) => element.textContent === 'Settings')
+    const clickHandler = vi.fn()
+    settingsButton?.addEventListener('click', clickHandler)
+
+    syncPrivatePostAnnotationMount()
+
+    expect(clickHandler).toHaveBeenCalledTimes(1)
+    expect(window.location.search).toBe('?name=demo-post')
+  })
+
+  it('hides the internal bundle field wrapper in settings', () => {
+    window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
+    document.body.innerHTML = `
+      <div data-hpp-annotation-tool-slot="true"></div>
       <div class="formkit-outer" id="internal-wrapper">
         <textarea id="hpp-annotation-bundle"></textarea>
       </div>
-      <div data-hpp-annotation-internal="true" id="internal-hook">internal</div>
     `
 
-    hideInternalAnnotationFields()
+    syncPrivatePostAnnotationMount()
 
     const wrapper = document.getElementById('internal-wrapper')
-    const hook = document.getElementById('internal-hook')
 
     expect(wrapper?.style.display).toBe('none')
     expect(wrapper?.getAttribute('aria-hidden')).toBe('true')
-    expect(hook?.style.display).toBe('none')
-    expect(hook?.getAttribute('aria-hidden')).toBe('true')
   })
 })

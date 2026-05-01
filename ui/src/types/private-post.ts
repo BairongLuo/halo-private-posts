@@ -90,3 +90,10 @@ export interface SiteRecoveryResetRequest {
   postName: string
   nextPassword: string
 }
+
+export interface SiteRecoveryRefreshRequest {
+  postName: string
+  payloadFormat?: string
+  content?: string
+  metadata?: BundleMetadata
+}

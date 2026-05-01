@@ -8,7 +8,7 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '1.0.1'
+version = '1.10'
 
 def haloPlatformVersion = '2.24.0'
 def haloRuntimeVersion = '2.24.1'
@@ -111,8 +111,55 @@ tasks.named('classes') {
 }
 
 tasks.named('check') {
+    dependsOn tasks.named('verifyDocs')
     dependsOn tasks.named('typeCheckUi')
     dependsOn tasks.named('testUi')
+}
+
+tasks.register('verifyDocs') {
+    group = 'verification'
+    description = 'Verifies required engineering documents exist and README links to core guides.'
+
+    doLast {
+        def requiredDocs = [
+            'docs/ARCHITECTURE.md',
+            'docs/DOCUMENTATION_STANDARDS.md',
+            'docs/MAINTENANCE.md',
+            'docs/OPERATIONS.md',
+            'docs/QUALITY_GATES.md',
+            'docs/SAVE_ENCRYPTION_CONTRACT.md',
+            'docs/SMOKE_TEST.md'
+        ]
+        def missingDocs = requiredDocs.findAll { !file(it).exists() }
+        if (!missingDocs.isEmpty()) {
+            throw new GradleException(
+                "Documentation verification failed: missing files: ${missingDocs.join(', ')}"
+            )
+        }
+
+        def readmeText = file('README.md').getText('UTF-8')
+        def requiredReadmeLinks = [
+            'docs/DOCUMENTATION_STANDARDS.md',
+            'docs/QUALITY_GATES.md',
+            'docs/SAVE_ENCRYPTION_CONTRACT.md',
+            'docs/SMOKE_TEST.md'
+        ]
+        def missingReadmeLinks = requiredReadmeLinks.findAll { link ->
+            !readmeText.contains("(${link})")
+        }
+        if (!missingReadmeLinks.isEmpty()) {
+            throw new GradleException(
+                "Documentation verification failed: README is missing links: "
+                    + missingReadmeLinks.join(', ')
+            )
+        }
+    }
+}
+
+tasks.register('quickCheck') {
+    group = 'verification'
+    description = 'Runs documentation checks, backend tests, frontend unit tests, and frontend type checks.'
+    dependsOn tasks.named('check')
 }
 
 tasks.register('smokeCheck') {
@@ -152,6 +199,12 @@ tasks.register('smokeCheck') {
             )
         }
     }
+}
+
+tasks.register('verifyAll') {
+    group = 'verification'
+    description = 'Runs the full local verification gate: docs checks, automated tests, packaging, and asset smoke checks.'
+    dependsOn tasks.named('smokeCheck')
 }
 
 tasks.named('jar', Jar) {

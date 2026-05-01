@@ -17,10 +17,13 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import run.halo.app.content.ContentWrapper;
+import run.halo.app.content.PostContentService;
 import run.halo.app.core.extension.content.Post;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.privateposts.model.PrivatePost;
+import run.halo.privateposts.service.PrivatePostBundleCryptoService;
 import run.halo.privateposts.service.PasswordSlotCryptoService;
 import run.halo.privateposts.service.PrivatePostService;
 import run.halo.privateposts.service.SiteRecoveryKeyService;
@@ -43,7 +46,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             mock(PasswordSlotCryptoService.class),
+            mock(PrivatePostBundleCryptoService.class),
             mock(PrivatePostService.class),
+            mock(PostContentService.class),
             mock(ReactiveExtensionClient.class)
         ), authenticatedUser("admin"));
 
@@ -70,7 +75,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             mock(PasswordSlotCryptoService.class),
+            mock(PrivatePostBundleCryptoService.class),
             mock(PrivatePostService.class),
+            mock(PostContentService.class),
             mock(ReactiveExtensionClient.class)
         ), null);
 
@@ -86,7 +93,9 @@ class PrivatePostConsoleRouterTest {
     void shouldResetPasswordWithSiteRecoveryAndPersistBundleToSourcePost() throws Exception {
         SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
         PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
         PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
         ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
         Post sourcePost = sourcePost("demo-post");
         PrivatePost.PasswordSlot nextPasswordSlot = passwordSlot("feedbeef", "somesalt", "deadbeef", "cafebabe");
@@ -110,7 +119,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             passwordSlotCryptoService,
+            privatePostBundleCryptoService,
             privatePostService,
+            postContentService,
             extensionClient
         ), authenticatedUser("editor"));
 
@@ -145,7 +156,9 @@ class PrivatePostConsoleRouterTest {
     void shouldResetPasswordUsingSourcePostBundleWhenPrivatePostMirrorIsMissing() throws Exception {
         SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
         PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
         PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
         ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
         Post sourcePost = sourcePost("demo-post");
         PrivatePost.PasswordSlot nextPasswordSlot = passwordSlot("feedbeef", "somesalt", "deadbeef", "cafebabe");
@@ -159,7 +172,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             passwordSlotCryptoService,
+            privatePostBundleCryptoService,
             privatePostService,
+            postContentService,
             extensionClient
         ), authenticatedUser("editor"));
 
@@ -182,7 +197,9 @@ class PrivatePostConsoleRouterTest {
     void shouldRejectInvalidSourceBundleBeforeTryingSiteRecoveryUnwrap() throws Exception {
         SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
         PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
         PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
         ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
         Post sourcePost = sourcePostWithBundleText(
             "demo-post",
@@ -199,7 +216,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             passwordSlotCryptoService,
+            privatePostBundleCryptoService,
             privatePostService,
+            postContentService,
             extensionClient
         ), authenticatedUser("editor"));
 
@@ -219,7 +238,9 @@ class PrivatePostConsoleRouterTest {
     void shouldRejectBundleWithoutSiteRecoverySlot() throws Exception {
         SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
         PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
         PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
         ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
         Post sourcePost = sourcePostWithBundleText(
             "demo-post",
@@ -239,7 +260,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             passwordSlotCryptoService,
+            privatePostBundleCryptoService,
             privatePostService,
+            postContentService,
             extensionClient
         ), authenticatedUser("editor"));
 
@@ -259,7 +282,9 @@ class PrivatePostConsoleRouterTest {
     void shouldRejectBundleWithInvalidSiteRecoverySlot() throws Exception {
         SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
         PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
         PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
         ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
         Post sourcePost = sourcePostWithBundleText(
             "demo-post",
@@ -280,7 +305,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             passwordSlotCryptoService,
+            privatePostBundleCryptoService,
             privatePostService,
+            postContentService,
             extensionClient
         ), authenticatedUser("editor"));
 
@@ -309,7 +336,9 @@ class PrivatePostConsoleRouterTest {
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
             mock(PasswordSlotCryptoService.class),
+            mock(PrivatePostBundleCryptoService.class),
             mock(PrivatePostService.class),
+            mock(PostContentService.class),
             mock(ReactiveExtensionClient.class)
         ), authenticatedUser("author"));
 
@@ -321,14 +350,151 @@ class PrivatePostConsoleRouterTest {
             .jsonPath("$.kid").isEqualTo("site-recovery-rsa-oaep-sha256-v1");
     }
 
+    @Test
+    void shouldRefreshBundleWithSiteRecoveryAndPersistUpdatedCiphertext() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePost("demo-post");
+        PrivatePost.Bundle refreshedBundle = privatePost("demo-post").getSpec().getBundle();
+        refreshedBundle.setDataIv("ffeeddccbbaa998877665544");
+        refreshedBundle.setCiphertext("abcddcba00112233445566778899aabbabcddcba00112233445566778899aabb");
+        refreshedBundle.setAuthTag("0123456789abcdeffedcba9876543210");
+        refreshedBundle.getMetadata().setTitle("Updated Title");
+        AtomicReference<Post> updatedPost = new AtomicReference<>();
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        when(siteRecoveryKeyService.unwrap(any(byte[].class))).thenReturn(Mono.just(sampleContentKey()));
+        when(privatePostBundleCryptoService.reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            eq("markdown"),
+            eq("# updated body"),
+            any(PrivatePost.BundleMetadata.class)
+        )).thenReturn(refreshedBundle);
+        when(extensionClient.update(any(Post.class))).thenAnswer(invocation -> {
+            Post post = invocation.getArgument(0);
+            updatedPost.set(post);
+            return Mono.just(post);
+        });
+        when(privatePostService.upsert(any(PrivatePost.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostBundleCryptoService,
+            privatePostService,
+            postContentService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/refresh-bundle")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "payloadFormat", "markdown",
+                "content", "# updated body",
+                "metadata", Map.of(
+                    "slug", "demo-post-slug",
+                    "title", "Updated Title"
+                )
+            ))
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody()
+            .jsonPath("$.message").isEqualTo("私密正文密文已按最新正文同步更新")
+            .jsonPath("$.bundle.data_iv").isEqualTo("ffeeddccbbaa998877665544")
+            .jsonPath("$.bundle.metadata.title").isEqualTo("Updated Title");
+
+        assertThat(updatedPost.get()).isNotNull();
+        String bundleText = updatedPost.get().getMetadata().getAnnotations()
+            .get(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION);
+        JsonNode bundleJson = objectMapper.readTree(bundleText);
+        assertThat(bundleJson.path("ciphertext").asText())
+            .isEqualTo("abcddcba00112233445566778899aabbabcddcba00112233445566778899aabb");
+        assertThat(bundleJson.path("password_slot").path("wrapped_cek").asText())
+            .isEqualTo(refreshedBundle.getPasswordSlot().getWrappedCek());
+    }
+
+    @Test
+    void shouldRefreshBundleUsingSavedHeadContentWhenRequestDoesNotCarryContent() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePost("demo-post");
+        PrivatePost.Bundle refreshedBundle = privatePost("demo-post").getSpec().getBundle();
+        refreshedBundle.getMetadata().setTitle("Updated From Metadata Save");
+        ContentWrapper headContent = ContentWrapper.builder()
+            .content("<p>saved markdown body</p>")
+            .raw("# saved markdown body")
+            .rawType("markdown")
+            .build();
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        when(siteRecoveryKeyService.unwrap(any(byte[].class))).thenReturn(Mono.just(sampleContentKey()));
+        when(postContentService.getHeadContent("demo-post")).thenReturn(Mono.just(headContent));
+        when(privatePostBundleCryptoService.reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            eq("markdown"),
+            eq("# saved markdown body"),
+            any(PrivatePost.BundleMetadata.class)
+        )).thenReturn(refreshedBundle);
+        when(extensionClient.update(any(Post.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(privatePostService.upsert(any(PrivatePost.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostBundleCryptoService,
+            privatePostService,
+            postContentService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/refresh-bundle")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "metadata", Map.of(
+                    "slug", "demo-post-slug",
+                    "title", "Updated From Metadata Save"
+                )
+            ))
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody()
+            .jsonPath("$.message").isEqualTo("私密正文密文已按最新正文同步更新")
+            .jsonPath("$.bundle.metadata.title").isEqualTo("Updated From Metadata Save");
+
+        verify(postContentService).getHeadContent("demo-post");
+        verify(privatePostBundleCryptoService).reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            eq("markdown"),
+            eq("# saved markdown body"),
+            any(PrivatePost.BundleMetadata.class)
+        );
+    }
+
     private PrivatePostConsoleRouter newRouter(SiteRecoveryKeyService siteRecoveryKeyService,
                                                PasswordSlotCryptoService passwordSlotCryptoService,
+                                               PrivatePostBundleCryptoService privatePostBundleCryptoService,
                                                PrivatePostService privatePostService,
+                                               PostContentService postContentService,
                                                ReactiveExtensionClient extensionClient) {
         return new PrivatePostConsoleRouter(
             siteRecoveryKeyService,
             passwordSlotCryptoService,
+            privatePostBundleCryptoService,
             privatePostService,
+            postContentService,
             extensionClient
         );
     }

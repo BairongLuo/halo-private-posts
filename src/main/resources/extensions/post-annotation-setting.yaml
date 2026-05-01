@@ -11,13 +11,7 @@ spec:
   formSchema:
     - $el: div
       attrs:
-        data-hpp-annotation-internal: "true"
-        style: "display: none;"
-      children: "halo-private-posts internal annotation hook"
-    - $formkit: textarea
+        data-hpp-annotation-tool-slot: "true"
+    - $formkit: hidden
       id: hpp-annotation-bundle
       name: privateposts.halo.run/bundle
-      label: 文章加密内部密文（自动维护）
-      placeholder: "{ ... 自动维护的加密 bundle ... }"
-      rows: 14
-      help: "由上方文章加密工具自动维护，请勿手动编辑。"

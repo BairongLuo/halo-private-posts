@@ -21,6 +21,8 @@ import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
+import run.halo.app.content.ContentWrapper;
+import run.halo.app.content.PostContentService;
 import run.halo.app.core.extension.endpoint.CustomEndpoint;
 import run.halo.app.core.extension.content.Post;
 import run.halo.app.extension.GroupVersion;
@@ -28,6 +30,7 @@ import run.halo.app.extension.Metadata;
 import run.halo.app.extension.MetadataOperator;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.privateposts.model.PrivatePost;
+import run.halo.privateposts.service.PrivatePostBundleCryptoService;
 import run.halo.privateposts.service.PasswordSlotCryptoService;
 import run.halo.privateposts.service.PrivatePostService;
 import run.halo.privateposts.service.SiteRecoveryKeyService;
@@ -56,16 +59,22 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
 
     private final SiteRecoveryKeyService siteRecoveryKeyService;
     private final PasswordSlotCryptoService passwordSlotCryptoService;
+    private final PrivatePostBundleCryptoService privatePostBundleCryptoService;
     private final PrivatePostService privatePostService;
+    private final PostContentService postContentService;
     private final ReactiveExtensionClient client;
 
     public PrivatePostConsoleRouter(SiteRecoveryKeyService siteRecoveryKeyService,
                                     PasswordSlotCryptoService passwordSlotCryptoService,
+                                    PrivatePostBundleCryptoService privatePostBundleCryptoService,
                                     PrivatePostService privatePostService,
+                                    PostContentService postContentService,
                                     ReactiveExtensionClient client) {
         this.siteRecoveryKeyService = siteRecoveryKeyService;
         this.passwordSlotCryptoService = passwordSlotCryptoService;
+        this.privatePostBundleCryptoService = privatePostBundleCryptoService;
         this.privatePostService = privatePostService;
+        this.postContentService = postContentService;
         this.client = client;
     }
 
@@ -74,6 +83,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
     public RouterFunction<ServerResponse> endpoint() {
         return RouterFunctions.route()
             .GET("/private-posts/site-recovery-key", this::getSiteRecoveryKey)
+            .POST("/private-posts/refresh-bundle", this::refreshBundleWithSiteRecovery)
             .POST("/private-posts/reset-password", this::resetPasswordWithSiteRecovery)
             .build();
     }
@@ -145,6 +155,109 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of("message", error.getMessage())))
             .onErrorResume(IllegalStateException.class, this::internalServerErrorResponse);
+    }
+
+    private Mono<ServerResponse> refreshBundleWithSiteRecovery(ServerRequest request) {
+        return requireConsoleAdmin()
+            .then(request.bodyToMono(SiteRecoveryRefreshRequest.class))
+            .flatMap(body -> {
+                if (!StringUtils.hasText(body.postName())) {
+                    return ServerResponse.badRequest()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(Map.of("message", "postName 不能为空"));
+                }
+
+                return client.fetch(Post.class, body.postName())
+                    .switchIfEmpty(Mono.error(new IllegalArgumentException("未找到对应的源文章")))
+                    .flatMap(sourcePost -> {
+                        PrivatePost.Bundle bundle = requireBundleFromSourcePost(sourcePost);
+                        PrivatePost.SiteRecoverySlot siteRecoverySlot = bundle.getSiteRecoverySlot();
+                        if (siteRecoverySlot == null || !StringUtils.hasText(siteRecoverySlot.getWrappedCek())) {
+                            return Mono.error(new IllegalArgumentException("当前文章还没有平台恢复槽，不能直接刷新密文"));
+                        }
+
+                        PrivatePost.BundleMetadata metadata = body.metadata() == null
+                            ? bundle.getMetadata()
+                            : body.metadata().toBundleMetadata();
+                        try {
+                            validateSiteRecoverySlot(siteRecoverySlot);
+                        } catch (IllegalArgumentException error) {
+                            return Mono.error(new IllegalArgumentException(
+                                "当前文章的私密正文 bundle 无效，请重新加锁后再使用平台恢复",
+                                error
+                            ));
+                        }
+
+                        return resolveRefreshDocument(body)
+                            .flatMap(document -> siteRecoveryKeyService.unwrap(hexToBytes(siteRecoverySlot.getWrappedCek()))
+                                .map(contentKey -> privatePostBundleCryptoService.reencryptWithContentKey(
+                                    bundle,
+                                    contentKey,
+                                    document.payloadFormat(),
+                                    document.content(),
+                                    metadata
+                                )))
+                            .flatMap(nextBundle -> {
+                                PrivatePost privatePost = new PrivatePost();
+                                syncPrivatePostSpecFromSource(privatePost, sourcePost, nextBundle);
+
+                                return persistBundleToSourcePost(sourcePost, nextBundle)
+                                    .then(privatePostService.upsert(privatePost))
+                                    .then(ServerResponse.ok()
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .bodyValue(Map.of(
+                                            "message", "私密正文密文已按最新正文同步更新",
+                                            "bundle", nextBundle
+                                        )));
+                            });
+                    });
+            })
+            .onErrorResume(AccessDeniedException.class, this::forbiddenResponse)
+            .onErrorResume(IllegalArgumentException.class, error -> ServerResponse.badRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("message", error.getMessage())))
+            .onErrorResume(IllegalStateException.class, this::internalServerErrorResponse);
+    }
+
+    private Mono<RefreshDocument> resolveRefreshDocument(SiteRecoveryRefreshRequest request) {
+        if (StringUtils.hasText(request.payloadFormat()) && StringUtils.hasText(request.content())) {
+            return Mono.just(new RefreshDocument(request.payloadFormat().trim(), request.content()));
+        }
+
+        return postContentService.getHeadContent(request.postName())
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("当前无法读取已保存正文，请刷新编辑页后重试")))
+            .map(this::toRefreshDocument);
+    }
+
+    private RefreshDocument toRefreshDocument(ContentWrapper contentWrapper) {
+        if (contentWrapper == null) {
+            throw new IllegalArgumentException("当前无法读取已保存正文，请刷新编辑页后重试");
+        }
+
+        String raw = contentWrapper.getRaw() == null ? "" : contentWrapper.getRaw().trim();
+        String rendered = contentWrapper.getContent() == null ? "" : contentWrapper.getContent().trim();
+        String rawType = contentWrapper.getRawType() == null ? "" : contentWrapper.getRawType().trim().toLowerCase();
+        String content = StringUtils.hasText(raw) ? contentWrapper.getRaw() : contentWrapper.getContent();
+
+        if (!StringUtils.hasText(content)) {
+            throw new IllegalArgumentException("当前文章还没有正文内容，请先输入正文后再保存");
+        }
+
+        if (!StringUtils.hasText(rawType) || PAYLOAD_FORMAT_MARKDOWN.equals(rawType) || "md".equals(rawType)) {
+            return new RefreshDocument(PAYLOAD_FORMAT_MARKDOWN, content);
+        }
+
+        if (PAYLOAD_FORMAT_HTML.equals(rawType) || "htm".equals(rawType) || rawType.contains(PAYLOAD_FORMAT_HTML)) {
+            return new RefreshDocument(PAYLOAD_FORMAT_HTML, content);
+        }
+
+        if (!StringUtils.hasText(raw) && StringUtils.hasText(rendered)) {
+            return new RefreshDocument(PAYLOAD_FORMAT_HTML, contentWrapper.getContent());
+        }
+
+        throw new IllegalArgumentException(
+            "当前正文类型为 " + contentWrapper.getRawType() + "，暂时只支持 Markdown 或 HTML 正文加锁"
+        );
     }
 
     private Mono<Void> requireConsoleAdmin() {
@@ -400,5 +513,32 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
     }
 
     private record SiteRecoveryResetRequest(String postName, String nextPassword) {
+    }
+
+    private record SiteRecoveryRefreshRequest(String postName,
+                                              @Nullable String payloadFormat,
+                                              @Nullable String content,
+                                              @Nullable BundleMetadataPayload metadata) {
+    }
+
+    private record BundleMetadataPayload(String slug,
+                                         String title,
+                                         @Nullable String excerpt,
+                                         @Nullable String publishedAt) {
+        private PrivatePost.BundleMetadata toBundleMetadata() {
+            if (!StringUtils.hasText(slug) || !StringUtils.hasText(title)) {
+                throw new IllegalArgumentException("metadata.slug 和 metadata.title 不能为空");
+            }
+
+            PrivatePost.BundleMetadata metadata = new PrivatePost.BundleMetadata();
+            metadata.setSlug(slug.trim());
+            metadata.setTitle(title.trim());
+            metadata.setExcerpt(StringUtils.hasText(excerpt) ? excerpt.trim() : null);
+            metadata.setPublishedAt(StringUtils.hasText(publishedAt) ? publishedAt.trim() : null);
+            return metadata;
+        }
+    }
+
+    private record RefreshDocument(String payloadFormat, String content) {
     }
 }

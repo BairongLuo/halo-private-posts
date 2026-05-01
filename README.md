@@ -17,16 +17,17 @@
 ## 核心能力
 
 - 直接增强 Halo 原生文章，不维护第二套正文系统
-- 文章列表展示 `已加锁 / 未加锁` 状态，可直接点击进入加密面板
-- 编辑页顶部提供 `文章加密` 入口
+- 文章列表展示 `已加锁 / 未加锁` 状态，可直接点击跳转到编辑器并自动打开设置里的加密模块
+- 编辑器设置面板里提供 `文章加密` 模块，勾选后直接走 Halo 原生保存
 - 读者在原文章页或独立阅读页输入访问密码后，本地解密正文
 - 页面离开、切后台或空闲超时后自动重新锁定
-- 后台支持平台恢复口令重置，不暴露正文和内容密钥
+- 后台仅保留平台恢复口令重置页，不暴露正文和内容密钥
 
 ## 工作方式
 
-- 加锁基于当前文章已保存的 Markdown 或 HTML 正文
-- 前端在浏览器本地完成加密，再把 bundle 写回文章注解
+- 加锁和重算都基于文章的最新已保存正文
+- 首次加锁在浏览器本地完成加密，再把 bundle 写回文章注解
+- 已加密文章再次保存时，服务端通过恢复私钥链路重算密文，不依赖前端缓存正文
 - 服务端同步维护 `PrivatePost` 镜像，处理列表状态、阅读接口和恢复流程
 - 原文章页正文区域会被锁定态接管，解锁后原位阅读
 - `/private-posts?slug=...` 保留为独立阅读页
@@ -49,9 +50,10 @@
 
 ### 文章流集成
 
-- 基于 `AnnotationSetting` 维护内部注解字段，以及文章列表状态标签/编辑页顶部两处“文章加密”入口
-- 文章列表中的“已加锁 / 未加锁”可点击状态字段
+- 基于 `AnnotationSetting` 在编辑器设置面板注入“文章加密”模块，并隐藏内部 bundle 字段
+- 文章列表中的“已加锁 / 未加锁”可点击状态字段，会跳转到编辑器并自动打开设置面板
 - 文章注解 `privateposts.halo.run/bundle` 到 `PrivatePost` 的立即同步与事件补同步
+- 主编辑器保存正文和设置面板保存元数据两条链路都会触发密文同步
 - 再次加锁前的软删除镜像清理，以及 `404/409` 写入重试
 - 已删除 / 已回收 / 已取消私密正文文章的镜像自动清理
 - 取消私密正文后按 `postName` 补删所有镜像，`404` 不再向用户界面冒泡
@@ -87,8 +89,9 @@
 
 1. 从 GitHub Releases 下载插件 JAR。
 2. 在 Halo 后台安装并启用插件。
-3. 打开文章列表，点击 `已加锁 / 未加锁` 状态，或在编辑页顶部点击 `文章加密`。
-4. 先保存正文，再输入访问密码并加锁。
+3. 打开文章列表，点击 `已加锁 / 未加锁` 状态。
+4. 插件会跳转到编辑器，并自动打开设置里的“文章加密”模块。
+5. 先输入访问密码并勾选启用，再点击 Halo 原生保存。
 
 更完整的上线、升级、回滚和卸载说明见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
 
@@ -97,7 +100,10 @@
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：当前实现的分层、数据流和边界
 - [docs/ROADMAP.md](docs/ROADMAP.md)：阶段性进度和后续计划
 - [docs/RECOVERY_MODES.md](docs/RECOVERY_MODES.md)：当前恢复模型
+- [docs/DOCUMENTATION_STANDARDS.md](docs/DOCUMENTATION_STANDARDS.md)：文档职责边界和更新规则
+- [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md)：改动类型与测试 / 构建门槛
 - [docs/MAINTENANCE.md](docs/MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
+- [docs/SAVE_ENCRYPTION_CONTRACT.md](docs/SAVE_ENCRYPTION_CONTRACT.md)：保存、加密和密文同步行为契约
 - [docs/OPERATIONS.md](docs/OPERATIONS.md)：站点管理员视角的安装、升级、卸载与回滚说明
 - [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)：发布前 smoke test 清单
 - [docs/HALO_APP_STORE_SUBMISSION.md](docs/HALO_APP_STORE_SUBMISSION.md)：Halo 商店上架材料与 PR 草案
@@ -116,6 +122,18 @@ Gradle 会自动下载并使用 `Node.js 20.19.0` 构建 `ui/`，然后把产物
 
 ```bash
 ./gradlew build
+```
+
+快速校验：
+
+```bash
+./gradlew quickCheck
+```
+
+完整本地验证：
+
+```bash
+./gradlew verifyAll
 ```
 
 启动 Halo 开发容器并首次初始化：
@@ -145,4 +163,5 @@ npm run build
 如果要部署到真实 Halo 站点，先看：
 
 - [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md)
 - [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)

@@ -7,27 +7,36 @@ import {
   findPrivatePostByPostName,
   privatePostRegistryLoaded,
 } from '@/stores/private-post-registry'
+import { resolvePrivatePostListLockState } from '@/components/private-post-list-lock-state'
 import { openPostEncryptionEditor } from '@/utils/open-post-encryption-editor'
 
 const props = defineProps<{
   postName: string
+  sourceAnnotationsPresent: boolean
+  sourceBundleText?: string
 }>()
 
 onMounted(() => {
-  void ensurePrivatePostRegistryLoaded()
+  void ensurePrivatePostRegistryLoaded(true)
 })
 
 const matchedPrivatePost = computed(() => findPrivatePostByPostName(props.postName))
+const lockState = computed(() => resolvePrivatePostListLockState({
+  sourceAnnotationsPresent: props.sourceAnnotationsPresent,
+  sourceBundleText: props.sourceBundleText,
+  registryLoaded: privatePostRegistryLoaded.value,
+  registryHasPrivatePost: Boolean(matchedPrivatePost.value),
+}))
 const statusTheme = computed(() => {
-  if (!privatePostRegistryLoaded.value) {
+  if (!lockState.value.resolved) {
     return 'secondary'
   }
 
-  return matchedPrivatePost.value ? 'primary' : 'default'
+  return lockState.value.locked ? 'primary' : 'default'
 })
 
 const statusLabel = computed(() => {
-  return matchedPrivatePost.value ? '已加锁' : '未加锁'
+  return lockState.value.locked ? '已加锁' : '未加锁'
 })
 
 function handleClick(): void {
@@ -38,10 +47,10 @@ function handleClick(): void {
 <template>
   <div class="private-post-field">
     <button
-      v-if="privatePostRegistryLoaded"
+      v-if="lockState.resolved"
       type="button"
       class="private-post-field-button"
-      :title="`打开${statusLabel}文章的加密面板`"
+      :title="`打开${statusLabel}文章的设置页`"
       @click.stop="handleClick"
     >
       <VTag :theme="statusTheme" rounded>

@@ -1,19 +1,13 @@
 # Halo 商店上架材料
 
-本文档汇总 `halo-private-posts` 发布到 Halo 应用市场所需的最小材料，基于 `2026-04-29` 的仓库状态整理。
+本文档汇总 `halo-private-posts` 发布到 Halo 应用市场所需的最小材料。版本号、Release 链接、校验值等发布数据应以实际待发布版本为准，不应长期写死在文档里。
 
-## 当前仓库版本与公开发布状态
+## 当前仓库与发布信息
 
 - 插件名：`halo-private-posts`
-- 仓库当前版本：`1.0.1`
-- 当前公开 Release 版本：`1.0.1`
-- 当前公开 Git tag：`v1.0.1`
 - Halo 兼容范围：`>=2.24.0`
 - GitHub 仓库：`https://github.com/BairongLuo/halo-private-posts`
-- 当前公开 GitHub Release：`https://github.com/BairongLuo/halo-private-posts/releases/tag/v1.0.1`
-- 当前公开 JAR 下载：`https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.1/halo-private-posts-1.0.1.jar`
-- 当前公开校验文件：`https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.1/SHA256SUMS`
-- 当前公开 SHA256：`53c1427c9aedb220c3142d581790679cbb12a1d3ee30627eec36a276d333430b`
+- 发版前请以 `build.gradle`、`plugin.yaml` 和 GitHub Releases 中的实际版本信息为准
 
 ## Halo 官方流程
 
@@ -38,7 +32,7 @@
 ## 仍需补充的信息
 
 - Halo 官网用户名：用于上架后转交应用管理权限。
-- 商店截图：官方文档没有硬性格式要求，但实际提审时建议准备文章列表状态、编辑页加密入口、前台解锁页等真实截图。
+- 商店截图：官方文档没有硬性格式要求，但实际提审时建议准备文章列表状态标签、编辑器设置面板中的加密模块、前台解锁页等真实截图。
 
 ## 已补充的仓库元数据
 
@@ -70,11 +64,11 @@ TODO: 填写你的 Halo 官网用户名
 #### 补充说明
 
 - 插件名称：Halo Private Posts
-- 当前版本：v1.0.1
+- 当前版本：TODO
 - 兼容 Halo：>=2.24.0
-- Release：https://github.com/BairongLuo/halo-private-posts/releases/tag/v1.0.1
-- 下载地址：https://github.com/BairongLuo/halo-private-posts/releases/download/v1.0.1/halo-private-posts-1.0.1.jar
-- SHA256：53c1427c9aedb220c3142d581790679cbb12a1d3ee30627eec36a276d333430b
+- Release：TODO
+- 下载地址：TODO
+- SHA256：TODO
 - 简介：为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。
 
 ```release-note

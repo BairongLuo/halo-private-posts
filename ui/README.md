@@ -6,8 +6,8 @@
    - 展示已加密文章
    - 后台平台恢复重置访问口令
 2. 文章设置里的私密正文工具
-   - 在当前文章上直接加锁或取消加锁
-   - 直接维护注解里的 `bundle`
+   - 在编辑器设置面板里勾选启用或取消启用文章加密
+   - 跟随 Halo 原生保存自动维护注解里的 `bundle`
 3. 前台 reader
    - 原文章页内联锁定态
    - 独立阅读页
@@ -31,8 +31,10 @@
 - 入口：`src/annotation/PrivatePostAnnotationTool.vue`
 - 挂载：`src/annotation/mount.ts`
 - 能力：
-  - 读取当前文章正文
-  - 浏览器本地生成 `EncryptedPrivatePostBundle v3`
+  - 在编辑器设置面板注入“文章加密”模块
+  - 主编辑器保存正文和设置面板保存元数据两条链路都能识别
+  - 首次加锁时浏览器本地生成 `EncryptedPrivatePostBundle v3`
+  - 已加密文章再次保存时调用服务端恢复链路重算密文
   - 直接写回 `privateposts.halo.run/bundle`
   - 自动写入 `password_slot` 和 `site_recovery_slot`
 

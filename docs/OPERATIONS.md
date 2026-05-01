@@ -22,8 +22,8 @@
 2. 准备插件包 `build/libs/halo-private-posts-<version>.jar`。
 3. 在 Halo 后台安装并启用插件。
 4. 启用后确认以下入口可见：
-   - 文章列表中的“已加锁 / 未加锁”状态标签，可点击进入“文章加密”面板
-   - 文章编辑页顶部的“文章加密”入口
+   - 文章列表中的“已加锁 / 未加锁”状态标签，可点击跳转到编辑器
+   - 编辑器设置面板里的“文章加密”模块
    - 前台 `/private-posts?slug=...`
    - 如需演练平台恢复，可直达隐藏后台页 `/console/private-posts`
 5. 首次使用平台恢复能力时，插件会在服务端创建 Secret `halo-private-posts-site-recovery`。这个 Secret 是平台恢复根能力的一部分，必须纳入备份和访问控制。
@@ -33,16 +33,16 @@
 1. 升级前先备份 Halo 数据和 `halo-private-posts-site-recovery`。
 2. 只在支持 `v3` bundle 的版本之间升级或回滚。
 3. 替换插件包后，至少完成一次发布前 smoke test：
-   - `./gradlew smokeCheck`
+   - `./gradlew verifyAll`
    - 安装 -> 加锁 -> 阅读 -> 平台恢复重置口令 -> 取消加锁
 4. 升级完成后抽查一篇历史已加锁文章：
-   - 文章列表状态字段仍正确显示已加锁或未加锁，并可直接点击进入“文章加密”面板
+   - 文章列表状态字段仍正确显示已加锁或未加锁，并可直接点击跳转到编辑器设置
    - 原文章页仍显示锁定态
    - 新口令重置后旧口令失效
 
 ## 发版资产
 
-- 本地手工打包时，使用 `./gradlew smokeCheck`，确认 `build/libs/halo-private-posts-<version>.jar` 已产出。
+- 本地手工打包时，使用 `./gradlew verifyAll`，确认 `build/libs/halo-private-posts-<version>.jar` 已产出。
 - GitHub Actions 已提供 `.github/workflows/release.yml`：
   - 手动触发时会构建插件 JAR 并上传 artifact
   - 推送 `v*` tag 时会额外生成 `SHA256SUMS` 并创建 GitHub Release

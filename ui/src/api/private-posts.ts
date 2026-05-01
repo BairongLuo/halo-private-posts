@@ -6,6 +6,7 @@ import type {
   PrivatePost,
   PrivatePostList,
   SiteRecoveryPublicKey,
+  SiteRecoveryRefreshRequest,
   SiteRecoveryResetRequest,
 } from '@/types/private-post'
 
@@ -38,6 +39,15 @@ export async function resetPrivatePostPasswordWithSiteRecovery(
   request: SiteRecoveryResetRequest
 ): Promise<void> {
   await axiosInstance.post(`${CONSOLE_API_BASE}/reset-password`, request)
+}
+
+export async function refreshPrivatePostBundleWithSiteRecovery(
+  request: SiteRecoveryRefreshRequest
+): Promise<EncryptedPrivatePostBundle> {
+  const { data } = await axiosInstance.post<{
+    bundle: EncryptedPrivatePostBundle
+  }>(`${CONSOLE_API_BASE}/refresh-bundle`, request)
+  return data.bundle
 }
 
 export async function waitForPrivatePostSync(args: {
