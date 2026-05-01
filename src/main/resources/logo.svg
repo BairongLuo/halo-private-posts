@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
-  <title id="title">Halo Private Posts</title>
+  <title id="title">文章加密</title>
   <desc id="desc">A rounded shield with a lock and two content lines.</desc>
   <defs>
     <linearGradient id="shield" x1="18" y1="18" x2="110" y2="110" gradientUnits="userSpaceOnUse">

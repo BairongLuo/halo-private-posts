@@ -27,7 +27,7 @@
   - `README.md`
   - `docs/OPERATIONS.md`
   - `docs/SMOKE_TEST.md`
-- 当前公开版本 `v1.0.1` 已完成 GitHub Release，且包含 JAR 与 `SHA256SUMS`。
+- 当前公开版本请以实际 GitHub Release 为准，并确认附件中包含 JAR 与 `SHA256SUMS`。
 
 ## 仍需补充的信息
 
@@ -63,7 +63,7 @@ TODO: 填写你的 Halo 官网用户名
 
 #### 补充说明
 
-- 插件名称：Halo Private Posts
+- 插件名称：文章加密
 - 当前版本：TODO
 - 兼容 Halo：>=2.24.0
 - Release：TODO
@@ -78,7 +78,7 @@ TODO: 填写你的 Halo 官网用户名
 
 ## 商店条目建议文案
 
-- 显示名称：`Halo Private Posts`
+- 显示名称：`文章加密`
 - 简短描述：`为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。`
 - 详细描述：`文章仍然使用 Halo 原生 Post 流程，标题、slug 和摘要保持公开，正文以加密 bundle 保存在文章注解中；读者输入访问密码后在浏览器本地解密，离开页面、切后台或空闲超时后会自动重新锁定。`
 - 适用场景：`付费内容预览后加锁、活动文章密码访问、内部资料临时共享、原生文章流内的私密正文托管。`

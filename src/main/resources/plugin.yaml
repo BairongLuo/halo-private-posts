@@ -8,13 +8,13 @@ spec:
   requires: ">=2.24.0"
   author:
     name: lbr
-    website: https://github.com/lbr
+    website: https://github.com/BairongLuo
   logo: logo.svg
-  homepage: https://github.com/lbr/halo-private-posts
-  repo: https://github.com/lbr/halo-private-posts
-  issues: https://github.com/lbr/halo-private-posts/issues
-  displayName: "Halo Private Posts"
+  homepage: https://github.com/BairongLuo/halo-private-posts
+  repo: https://github.com/BairongLuo/halo-private-posts
+  issues: https://github.com/BairongLuo/halo-private-posts/issues
+  displayName: "文章加密"
   description: "为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。"
   license:
     - name: "GPL-3.0-only"
-      url: "https://github.com/lbr/halo-private-posts/blob/main/LICENSE"
+      url: "https://github.com/BairongLuo/halo-private-posts/blob/main/LICENSE"
