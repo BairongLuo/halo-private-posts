@@ -8,11 +8,13 @@
 
 ### 编辑页加密面板
 
-<img src="docs/images/editor-panel.png" alt="编辑页加密面板" width="50%" />
+<img src="docs/images/51_1.png" alt="编辑页加密面板" width="50%" />
 
 ### 文章列表状态
 
-<img src="docs/images/post-list-status.png" alt="文章列表状态" width="50%" />
+<img src="docs/images/51_2.png" alt="文章列表状态" width="50%" />
+
+<img src="docs/images/post-list-status.png" alt="文章列表状态（旧版）" width="50%" />
 
 ## 核心能力
 
@@ -23,67 +25,10 @@
 - 页面离开、切后台或空闲超时后自动重新锁定
 - 后台仅保留平台恢复口令重置页，不暴露正文和内容密钥
 
-## 工作方式
-
-- 加锁和重算都基于文章的最新已保存正文
-- 首次加锁在浏览器本地完成加密，再把 bundle 写回文章注解
-- 已加密文章再次保存时，服务端通过恢复私钥链路重算密文，不依赖前端缓存正文
-- 服务端同步维护 `PrivatePost` 镜像，处理列表状态、阅读接口和恢复流程
-- 原文章页正文区域会被锁定态接管，解锁后原位阅读
-- `/private-posts?slug=...` 保留为独立阅读页
-
-## 兼容与协议
+## 兼容性
 
 - Halo：`>= 2.24.0`
-- 当前只支持 `EncryptedPrivatePostBundle v3`
-
-`v3` 使用：
-
-- 随机生成内容密钥 `CEK`
-- 用 `CEK` 通过 `AES-256-GCM` 加密正文
-- 用 `password_slot` 通过 `scrypt + AES-GCM` 包裹同一个 `CEK`
-- 用 `site_recovery_slot` 通过站点恢复公钥包裹同一个 `CEK`
-- Halo 服务端不保存访问口令，但会保存站点恢复私钥
-- 阅读端公开交互始终只保留访问口令，不暴露恢复入口
-
-## 已实现能力
-
-### 文章流集成
-
-- 基于 `AnnotationSetting` 在编辑器设置面板注入“文章加密”模块，并隐藏内部 bundle 字段
-- 文章列表中的“已加锁 / 未加锁”可点击状态字段，会跳转到编辑器并自动打开设置面板
-- 文章注解 `privateposts.halo.run/bundle` 到 `PrivatePost` 的立即同步与事件补同步
-- 主编辑器保存正文和设置面板保存元数据两条链路都会触发密文同步
-- 再次加锁前的软删除镜像清理，以及 `404/409` 写入重试
-- 已删除 / 已回收 / 已取消私密正文文章的镜像自动清理
-- 取消私密正文后按 `postName` 补删所有镜像，`404` 不再向用户界面冒泡
-- 原文章页正文区域的锁定态接管与原位解锁
-
-### 加密与解密
-
-- `EncryptedPrivatePostBundle v3` 生成、解析、校验和渲染
-- Markdown 与 HTML 正文 payload 支持
-- 浏览器本地密码解锁
-- 后台通过平台恢复能力重写 `password_slot`
-- 页面隐藏、离开和空闲超时后的自动重锁
-
-### 平台恢复
-
-- 服务端自动生成并持久化站点恢复 RSA 密钥对
-- 前端加锁时只获取恢复公钥，不接触恢复私钥
-- 新文章加锁时自动写入 `site_recovery_slot`
-- 后台重置口令由服务端解开 `site_recovery_slot` 并重写 `password_slot`
-- 重置口令时会同时回写文章真实注解和 `PrivatePost` 镜像，避免状态分叉
-- 如果文章注解里的 bundle 只是占位数据、历史脏数据或结构不合法，后台不会再尝试恢复，而会直接要求重新加锁写入有效 bundle
-
-### 前台与接口
-
-- `GET /private-posts?slug=...` 独立阅读页
-- `GET /private-posts/data?slug=...` 匿名 bundle 数据接口
-- `GET /apis/api.console.halo.run/v1alpha1/private-posts/site-recovery-key`
-- `POST /apis/api.console.halo.run/v1alpha1/private-posts/reset-password`
-- 匿名阅读入口都返回 `Cache-Control: no-store`，避免旧 bundle 被缓存
-- 默认锁定页模板 `private-post.html`
+- 当前版本基于 `EncryptedPrivatePostBundle v3`
 
 ## 快速安装
 
@@ -94,6 +39,12 @@
 5. 先输入访问密码并勾选启用，再点击 Halo 原生保存。
 
 更完整的上线、升级、回滚和卸载说明见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
+
+## 了解更多
+
+- 工作方式、数据流和实现边界见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 保存与加密行为标准见 [docs/SAVE_ENCRYPTION_CONTRACT.md](docs/SAVE_ENCRYPTION_CONTRACT.md)
+- 测试与发布门槛见 [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md) 和 [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)
 
 ## 文档导航
 
