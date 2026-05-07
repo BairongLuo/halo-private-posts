@@ -4,13 +4,13 @@
 
 ## 适用范围
 
-- Halo `2.24.x`
+- Halo `>=2.24.0`
 - 插件协议：`EncryptedPrivatePostBundle v3`
 - 恢复模型：`password_slot + site_recovery_slot + 服务端站点恢复私钥`
 
 ## 上线前准备
 
-- 先在与生产接近的 Halo `2.24.x` 环境执行一次完整回归。
+- 先在与生产接近的 Halo `>=2.24.0` 环境执行一次完整回归。
 - 确认站点启用了 HTTPS；访问密码和后台恢复操作都不应在明文链路上传输。
 - 确认 Halo 备份范围包含插件生成的站点恢复 Secret：`halo-private-posts-site-recovery`。
 - 收紧 Halo 后台权限。拥有后台恢复权限的一方可以重置已加锁文章的访问口令。
@@ -25,7 +25,7 @@
    - 文章列表中的“已加锁 / 未加锁”状态标签，可点击跳转到编辑器
    - 编辑器设置面板里的“文章加密”模块
    - 前台 `/private-posts?slug=...`
-   - 如需演练平台恢复，可直达隐藏后台页 `/console/private-posts`
+   - 如需演练平台恢复，可直达隐藏的后台恢复兜底页 `/console/private-posts`
 5. 首次使用平台恢复能力时，插件会在服务端创建 Secret `halo-private-posts-site-recovery`。这个 Secret 是平台恢复根能力的一部分，必须纳入备份和访问控制。
 
 ## 升级

@@ -2,7 +2,7 @@
 
 `ui/` 现在包含三块前端能力：
 
-1. 隐藏后台恢复页
+1. 隐藏的后台平台恢复兜底页
    - 展示已加密文章
    - 后台平台恢复重置访问口令
 2. 文章设置里的私密正文工具
@@ -13,7 +13,7 @@
    - 独立阅读页
    - 浏览器本地解密与自动重锁
 
-## 隐藏恢复页
+## 隐藏的后台恢复兜底页
 
 - 入口：`src/index.ts`
 - 主视图：`src/views/PrivatePostsView.vue`
@@ -56,7 +56,7 @@
 - `src/components/PostPrivateBodyField.vue`
   - Halo 文章列表里的私密正文状态字段
 - `src/views/PrivatePostsView.vue`
-  - 隐藏后台恢复页和口令维护流
+  - 隐藏的后台恢复兜底页和口令维护流
 - `src/reader.ts`
   - 阅读页挂载和自动重锁逻辑
 

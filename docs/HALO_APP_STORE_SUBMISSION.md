@@ -59,16 +59,16 @@ https://github.com/BairongLuo/halo-private-posts
 
 #### Halo 官网用户名
 
-TODO: 填写你的 Halo 官网用户名
+发布时填写你的 Halo 官网用户名。
 
 #### 补充说明
 
 - 插件名称：文章加密
-- 当前版本：TODO
+- 当前版本：发布时填写实际 tag
 - 兼容 Halo：>=2.24.0
-- Release：TODO
-- 下载地址：TODO
-- SHA256：TODO
+- Release：发布时填写对应 GitHub Release 链接
+- 下载地址：发布时填写 Release 附件中的 JAR 链接
+- SHA256：发布时填写 `SHA256SUMS` 中对应 JAR 的校验值
 - 简介：为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。
 
 ```release-note

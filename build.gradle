@@ -118,10 +118,11 @@ tasks.named('check') {
 
 tasks.register('verifyDocs') {
     group = 'verification'
-    description = 'Verifies required engineering documents exist and README links to core guides.'
+    description = 'Verifies required engineering documents exist and README points to the docs index.'
 
     doLast {
         def requiredDocs = [
+            'docs/README.md',
             'docs/ARCHITECTURE.md',
             'docs/DOCUMENTATION_STANDARDS.md',
             'docs/MAINTENANCE.md',
@@ -137,20 +138,46 @@ tasks.register('verifyDocs') {
             )
         }
 
+        def docsIndexText = file('docs/README.md').getText('UTF-8')
+        def requiredDocsIndexLinks = [
+            'ARCHITECTURE.md',
+            'DOCUMENTATION_STANDARDS.md',
+            'MAINTENANCE.md',
+            'OPERATIONS.md',
+            'QUALITY_GATES.md',
+            'SAVE_ENCRYPTION_CONTRACT.md',
+            'SMOKE_TEST.md'
+        ]
+        def missingDocsIndexLinks = requiredDocsIndexLinks.findAll { link ->
+            !docsIndexText.contains("(${link})")
+        }
+        if (!missingDocsIndexLinks.isEmpty()) {
+            throw new GradleException(
+                "Documentation verification failed: docs/README.md is missing links: "
+                    + missingDocsIndexLinks.join(', ')
+            )
+        }
+
         def readmeText = file('README.md').getText('UTF-8')
-        def requiredReadmeLinks = [
+        if (!readmeText.contains('(docs/README.md)')) {
+            throw new GradleException(
+                "Documentation verification failed: README should link to docs/README.md."
+            )
+        }
+
+        def disallowedReadmeLinks = [
             'docs/DOCUMENTATION_STANDARDS.md',
             'docs/QUALITY_GATES.md',
             'docs/SAVE_ENCRYPTION_CONTRACT.md',
             'docs/SMOKE_TEST.md'
         ]
-        def missingReadmeLinks = requiredReadmeLinks.findAll { link ->
-            !readmeText.contains("(${link})")
+        def technicalReadmeLinks = disallowedReadmeLinks.findAll { link ->
+            readmeText.contains("(${link})")
         }
-        if (!missingReadmeLinks.isEmpty()) {
+        if (!technicalReadmeLinks.isEmpty()) {
             throw new GradleException(
-                "Documentation verification failed: README is missing links: "
-                    + missingReadmeLinks.join(', ')
+                "Documentation verification failed: README should stay concise; move technical links to docs/README.md: "
+                    + technicalReadmeLinks.join(', ')
             )
         }
     }
