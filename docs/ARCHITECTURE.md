@@ -174,3 +174,82 @@
 - 浏览器端本地加密解密
 - 平台恢复兜底
 - 主题接入与阅读体验
+
+更完整的上线、升级、回滚和卸载说明见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
+
+## 了解更多
+
+- 工作方式、数据流和实现边界见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 保存与加密行为标准见 [docs/SAVE_ENCRYPTION_CONTRACT.md](docs/SAVE_ENCRYPTION_CONTRACT.md)
+- 测试与发布门槛见 [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md) 和 [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)
+
+## 文档导航
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：当前实现的分层、数据流和边界
+- [docs/ROADMAP.md](docs/ROADMAP.md)：阶段性进度和后续计划
+- [docs/RECOVERY_MODES.md](docs/RECOVERY_MODES.md)：当前恢复模型
+- [docs/DOCUMENTATION_STANDARDS.md](docs/DOCUMENTATION_STANDARDS.md)：文档职责边界和更新规则
+- [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md)：改动类型与测试 / 构建门槛
+- [docs/MAINTENANCE.md](docs/MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
+- [docs/SAVE_ENCRYPTION_CONTRACT.md](docs/SAVE_ENCRYPTION_CONTRACT.md)：保存、加密和密文同步行为契约
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)：站点管理员视角的安装、升级、卸载与回滚说明
+- [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)：发布前 smoke test 清单
+- [docs/HALO_APP_STORE_SUBMISSION.md](docs/HALO_APP_STORE_SUBMISSION.md)：Halo 商店上架材料与 PR 草案
+
+## 开发要求
+
+- JDK 21
+- Node.js 20+（仅在手动执行 `ui/` 下命令时需要）
+- npm 10+
+
+Gradle 会自动下载并使用 `Node.js 20.19.0` 构建 `ui/`，然后把产物复制到插件资源目录。
+
+## 本地开发
+
+完整构建：
+
+```bash
+./gradlew build
+```
+
+快速校验：
+
+```bash
+./gradlew quickCheck
+```
+
+完整本地验证：
+
+```bash
+./gradlew verifyAll
+```
+
+启动 Halo 开发容器并首次初始化：
+
+```bash
+./gradlew createHaloContainer
+```
+
+实例完成初始化后，热重载插件：
+
+```bash
+./gradlew reloadPlugin
+```
+
+单独验证前端：
+
+```bash
+cd ui
+npm install
+npm run type-check
+npm run test:unit
+npm run build
+```
+
+## 站点上线
+
+如果要部署到真实 Halo 站点，先看：
+
+- [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md)
+- [docs/SMOKE_TEST.md](docs/SMOKE_TEST.md)
