@@ -799,6 +799,7 @@ async function prepareManagedSaveResult(
   let action: SaveAction = 'none'
   let refreshPayloadFormat: string | undefined
   let refreshContent: string | undefined
+  let refreshNextPassword: string | undefined
 
   if (!encryptionEnabled.value) {
     nextBundleText = ''
@@ -830,6 +831,7 @@ async function prepareManagedSaveResult(
       metadata: input.metadata,
     }, null, 2)
     action = 'refresh'
+    refreshNextPassword = nextPassword || undefined
     if (hasContentPayload(input.content)) {
       const nextDraftContent = readDraftContent(input.content)
       refreshPayloadFormat = nextDraftContent.payload_format
@@ -848,6 +850,7 @@ async function prepareManagedSaveResult(
     refreshPayloadFormat,
     refreshContent,
     refreshMetadata: action === 'refresh' ? input.metadata : undefined,
+    refreshNextPassword,
   }
 }
 
@@ -1238,6 +1241,7 @@ async function commitPreparedDraftSave(
           payloadFormat: result.refreshPayloadFormat,
           content: result.refreshContent,
           metadata: result.refreshMetadata,
+          nextPassword: result.refreshNextPassword,
         })
         result.bundleText = JSON.stringify(refreshedBundle, null, 2)
       } else {
@@ -1635,6 +1639,7 @@ interface PreparedDraftSaveResult {
   refreshPayloadFormat?: string
   refreshContent?: string
   refreshMetadata?: BundleMetadata
+  refreshNextPassword?: string
 }
 </script>
 

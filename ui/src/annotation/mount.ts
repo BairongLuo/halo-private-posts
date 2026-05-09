@@ -10,6 +10,7 @@ import PrivatePostAnnotationTool from './PrivatePostAnnotationTool.vue'
 const AUTO_OPEN_QUERY_KEY = 'hppOpenEncryption'
 const BUNDLE_FIELD_ID = 'hpp-annotation-bundle'
 const TOOL_SLOT_SELECTOR = '[data-hpp-annotation-tool-slot]'
+const FALLBACK_TOOL_SLOT_SELECTOR = '[data-hpp-annotation-tool-slot-fallback]'
 const TOOL_HOST_ID = 'hpp-annotation-tool-host'
 
 let installed = false
@@ -63,9 +64,10 @@ export function syncPrivatePostAnnotationMount(): void {
     return
   }
 
-  if (!isPostEditorPage()) {
+  if (!isPrivatePostEditingContext()) {
     lastEditorRouteKey = ''
     pendingAutoOpenRouteKey = ''
+    removeFallbackAnnotationToolSlots()
     teardownMountedTool()
     return
   }
@@ -74,6 +76,7 @@ export function syncPrivatePostAnnotationMount(): void {
   if (routeKey !== lastEditorRouteKey) {
     lastEditorRouteKey = routeKey
     pendingAutoOpenRouteKey = ''
+    removeFallbackAnnotationToolSlots()
     teardownMountedTool()
   }
 
@@ -90,7 +93,51 @@ export function syncPrivatePostAnnotationMount(): void {
 
   hideInternalBundleField()
 
+  ensureAnnotationToolSlot()
+
   ensureMountHost()
+}
+
+function ensureAnnotationToolSlot(): void {
+  if (document.querySelector(TOOL_SLOT_SELECTOR)) {
+    return
+  }
+
+  if (!shouldInsertFallbackAnnotationToolSlot()) {
+    return
+  }
+
+  const bundleField = findBundleField()
+  if (!bundleField) {
+    return
+  }
+
+  const anchor = findBundleFieldWrapper(bundleField) ?? bundleField
+  const parent = anchor.parentElement
+  if (!parent) {
+    return
+  }
+
+  const slot = document.createElement('div')
+  slot.setAttribute('data-hpp-annotation-tool-slot', 'true')
+  slot.setAttribute('data-hpp-annotation-tool-slot-fallback', 'true')
+
+  parent.insertBefore(slot, anchor)
+}
+
+function removeFallbackAnnotationToolSlots(): void {
+  document.querySelectorAll(FALLBACK_TOOL_SLOT_SELECTOR).forEach((element) => {
+    element.remove()
+  })
+}
+
+function shouldInsertFallbackAnnotationToolSlot(): boolean {
+  const settingsButton = findEditorSettingsButton()
+  if (settingsButton && !isEditorActionActive(settingsButton)) {
+    return false
+  }
+
+  return Boolean(findBundleField())
 }
 
 function ensureMountHost(): void {
@@ -173,7 +220,7 @@ function isSettingsTabReady(): boolean {
   return Boolean(settingsButton && isEditorActionActive(settingsButton))
 }
 
-function isPostEditorPage(): boolean {
+function isPrivatePostEditingContext(): boolean {
   if (typeof window === 'undefined') {
     return false
   }
@@ -184,7 +231,15 @@ function isPostEditorPage(): boolean {
     window.location.href,
   ]
 
-  return pathCandidates.some((value) => /\/posts\/editor(?:[/?#]|$)/.test(value))
+  if (pathCandidates.some((value) => /\/posts\/editor(?:[/?#]|$)/.test(value))) {
+    return true
+  }
+
+  if (window.location.pathname === '/console/posts' && findBundleField()) {
+    return true
+  }
+
+  return false
 }
 
 function getEditorRouteKey(): string {

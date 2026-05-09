@@ -96,4 +96,5 @@ export interface SiteRecoveryRefreshRequest {
   payloadFormat?: string
   content?: string
   metadata?: BundleMetadata
+  nextPassword?: string
 }

@@ -10,6 +10,15 @@ import {
 import type { HaloPostSummary } from '@/api/posts'
 import type { PrivatePost } from '@/types/private-post'
 import { syncPrivatePostRegistry } from '@/stores/private-post-registry'
+import {
+  canResetWithSiteRecovery as canResetWithSiteRecoveryState,
+  formatTimestamp,
+  readQueryString,
+  resolveSelectedArticleSlug,
+  resolveSelectedArticleTitle,
+  resolveSiteRecoveryAvailability,
+  toMessage,
+} from './private-posts-view-model'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,40 +50,23 @@ const displayItems = computed(() => {
   return items.value.filter((item) => item.spec.postName === routePostName.value)
 })
 const selectedArticleTitle = computed(() => {
-  if (selectedPost.value?.title) {
-    return selectedPost.value.title
-  }
-
-  return selectedPostMapping.value?.spec.title ?? ''
+  return resolveSelectedArticleTitle(
+    selectedPost.value,
+    selectedPostMapping.value,
+    routePostName.value
+  )
 })
 const selectedArticleSlug = computed(() => {
-  if (selectedPost.value?.slug) {
-    return selectedPost.value.slug
-  }
-
-  return selectedPostMapping.value?.spec.slug ?? ''
+  return resolveSelectedArticleSlug(selectedPost.value, selectedPostMapping.value)
 })
 const siteRecoveryAvailability = computed(() => {
-  if (!routePostName.value) {
-    return '先从列表选中一篇文章。'
-  }
-
-  if (!selectedPostMapping.value) {
-    return '当前文章还没有同步出私密正文。'
-  }
-
-  if (selectedPostMapping.value.spec.bundle.site_recovery_slot) {
-    return '输入新口令后，平台会直接重写 password slot。'
-  }
-
-  return '当前文章缺少有效的平台恢复槽。请重新加锁后再使用平台恢复。'
+  return resolveSiteRecoveryAvailability(routePostName.value, selectedPostMapping.value)
 })
 const canResetWithSiteRecovery = computed(() => {
-  return Boolean(
-    selectedPostMapping.value
-      && selectedPostMapping.value.spec.bundle.site_recovery_slot
-      && recoveryNextPassword.value.trim()
-      && recoveryConfirmNextPassword.value.trim()
+  return canResetWithSiteRecoveryState(
+    selectedPostMapping.value,
+    recoveryNextPassword.value,
+    recoveryConfirmNextPassword.value
   )
 })
 
@@ -207,33 +199,6 @@ async function initializeView() {
   await syncSelectionFromRoute()
 }
 
-function formatTimestamp(value?: string) {
-  if (!value) {
-    return '未设置'
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
-
-  return date.toLocaleString('zh-CN', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
-}
-
-function readQueryString(value: unknown): string {
-  if (Array.isArray(value)) {
-    return typeof value[0] === 'string' ? value[0] : ''
-  }
-
-  return typeof value === 'string' ? value : ''
-}
-
-function toMessage(error: unknown) {
-  return error instanceof Error ? error.message : '未知错误'
-}
 </script>
 
 <template>
@@ -399,10 +364,52 @@ function toMessage(error: unknown) {
 .private-posts-view {
   min-height: 100vh;
   padding: 28px;
+  color: var(--hpp-text);
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 32%),
-    linear-gradient(180deg, #f7fafc 0%, #eef2f7 100%);
-  color: #0f172a;
+    radial-gradient(circle at top left, var(--hpp-accent-soft), transparent 32%),
+    linear-gradient(180deg, var(--hpp-page-bg) 0%, var(--hpp-page-bg-alt) 100%);
+  --hpp-hero-text: #f8fafc;
+  --hpp-hero-muted: rgba(248, 250, 252, 0.86);
+  --hpp-card-bg: rgba(255, 255, 255, 0.82);
+  --hpp-card-bg-compact: rgba(248, 250, 252, 0.9);
+  --hpp-card-border: var(--hpp-surface-border);
+  --hpp-card-shadow: var(--hpp-shadow);
+  --hpp-pill-bg: rgba(15, 23, 42, 0.08);
+  --hpp-pill-text: #334155;
+  --hpp-pill-bg-active: rgba(15, 118, 110, 0.12);
+  --hpp-pill-text-active: var(--hpp-accent);
+  --hpp-button-bg: rgba(255, 255, 255, 0.16);
+  --hpp-button-secondary-bg: rgba(15, 23, 42, 0.18);
+  --hpp-button-border: rgba(255, 255, 255, 0.18);
+  --hpp-button-text: var(--hpp-hero-text);
+  --hpp-panel-bg: rgba(15, 23, 42, 0.03);
+  --hpp-panel-border: var(--hpp-surface-border);
+  --hpp-input-bg: rgba(255, 255, 255, 0.96);
+  --hpp-input-border: rgba(148, 163, 184, 0.4);
+  --hpp-list-divider: var(--hpp-surface-border);
+  --hpp-list-focus-bg: rgba(15, 118, 110, 0.04);
+  --hpp-focus-ring: 0 0 0 3px var(--hpp-accent-soft);
+}
+
+@media (prefers-color-scheme: dark) {
+  .private-posts-view {
+    --hpp-hero-text: #e2e8f0;
+    --hpp-hero-muted: rgba(226, 232, 240, 0.82);
+    --hpp-card-bg: rgba(15, 23, 42, 0.72);
+    --hpp-card-bg-compact: rgba(15, 23, 42, 0.62);
+    --hpp-pill-bg: rgba(148, 163, 184, 0.12);
+    --hpp-pill-text: #cbd5e1;
+    --hpp-pill-bg-active: rgba(45, 212, 191, 0.16);
+    --hpp-pill-text-active: var(--hpp-accent);
+    --hpp-button-bg: rgba(15, 23, 42, 0.28);
+    --hpp-button-secondary-bg: rgba(15, 23, 42, 0.44);
+    --hpp-button-border: rgba(148, 163, 184, 0.22);
+    --hpp-panel-bg: rgba(15, 23, 42, 0.48);
+    --hpp-panel-border: rgba(148, 163, 184, 0.2);
+    --hpp-input-bg: rgba(15, 23, 42, 0.7);
+    --hpp-input-border: rgba(148, 163, 184, 0.3);
+    --hpp-list-focus-bg: rgba(45, 212, 191, 0.1);
+  }
 }
 
 .page-shell {
@@ -415,12 +422,10 @@ function toMessage(error: unknown) {
   justify-content: space-between;
   gap: 20px;
   padding: 24px 28px;
-  border-radius: 28px;
-  background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.96), rgba(21, 94, 117, 0.92)),
-    #115e59;
-  color: #f8fafc;
-  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.14);
+  border-radius: 24px;
+  background: linear-gradient(135deg, var(--hpp-accent), var(--hpp-accent-strong));
+  color: var(--hpp-hero-text);
+  box-shadow: var(--hpp-card-shadow);
 }
 
 .eyebrow {
@@ -441,7 +446,7 @@ function toMessage(error: unknown) {
   max-width: 620px;
   margin: 14px 0 0;
   line-height: 1.65;
-  color: rgba(248, 250, 252, 0.86);
+  color: var(--hpp-hero-muted);
 }
 
 .hero-actions {
@@ -452,18 +457,19 @@ function toMessage(error: unknown) {
 }
 
 .hero-button {
-  border: 0;
+  border: 1px solid var(--hpp-button-border);
   border-radius: 14px;
   padding: 12px 16px;
-  background: rgba(248, 250, 252, 0.16);
-  color: #f8fafc;
+  background: var(--hpp-button-bg);
+  color: var(--hpp-button-text);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  backdrop-filter: blur(12px);
 }
 
 .hero-button.secondary {
-  background: rgba(15, 23, 42, 0.18);
+  background: var(--hpp-button-secondary-bg);
 }
 
 .hero-button:disabled {
@@ -479,8 +485,8 @@ function toMessage(error: unknown) {
 }
 
 .banner.error {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--hpp-error-bg);
+  color: var(--hpp-error-text);
 }
 
 .focus-card,
@@ -490,9 +496,9 @@ function toMessage(error: unknown) {
   margin-top: 22px;
   padding: 20px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  background: var(--hpp-card-bg);
+  border: 1px solid var(--hpp-card-border);
+  box-shadow: var(--hpp-card-shadow);
   backdrop-filter: blur(12px);
 }
 
@@ -510,19 +516,19 @@ function toMessage(error: unknown) {
   margin-right: 8px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  color: #334155;
+  background: var(--hpp-pill-bg);
+  color: var(--hpp-pill-text);
   font-size: 12px;
   font-weight: 700;
 }
 
 .state-pill.active {
-  background: rgba(15, 118, 110, 0.12);
-  color: #0f766e;
+  background: var(--hpp-pill-bg-active);
+  color: var(--hpp-pill-text-active);
 }
 
 .state-pill.subtle {
-  color: #475569;
+  color: var(--hpp-muted);
 }
 
 .focus-card h2,
@@ -534,7 +540,7 @@ function toMessage(error: unknown) {
 
 .focus-slug {
   margin: 8px 0 0;
-  color: #0f766e;
+  color: var(--hpp-accent);
   font-weight: 700;
 }
 
@@ -543,7 +549,7 @@ function toMessage(error: unknown) {
 .card-header p,
 .post-item-excerpt {
   margin: 12px 0 0;
-  color: #475569;
+  color: var(--hpp-muted);
   line-height: 1.6;
 }
 
@@ -555,7 +561,7 @@ function toMessage(error: unknown) {
 }
 
 .focus-loading {
-  color: #64748b;
+  color: var(--hpp-muted);
   font-size: 13px;
 }
 
@@ -570,7 +576,7 @@ function toMessage(error: unknown) {
 .post-item-meta dt {
   margin: 0 0 4px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--hpp-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -578,7 +584,7 @@ function toMessage(error: unknown) {
 .overview-stats dd,
 .post-item-meta dd {
   margin: 0;
-  color: #0f172a;
+  color: var(--hpp-heading);
 }
 
 .overview-stats dd {
@@ -587,7 +593,7 @@ function toMessage(error: unknown) {
 }
 
 .overview-card-compact {
-  background: rgba(248, 250, 252, 0.88);
+  background: var(--hpp-card-bg-compact);
 }
 
 .card-header {
@@ -601,8 +607,8 @@ function toMessage(error: unknown) {
 .empty-state {
   padding: 24px;
   border-radius: 20px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--hpp-card-bg-compact);
+  color: var(--hpp-muted);
   text-align: center;
 }
 
@@ -620,11 +626,11 @@ function toMessage(error: unknown) {
   gap: 20px;
   align-items: flex-start;
   padding: 16px 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  border-bottom: 1px solid var(--hpp-list-divider);
 }
 
 .post-item.focused {
-  background: rgba(15, 118, 110, 0.04);
+  background: var(--hpp-list-focus-bg);
 }
 
 .post-item-main {
@@ -635,7 +641,7 @@ function toMessage(error: unknown) {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #0f172a;
+  color: var(--hpp-heading);
   cursor: pointer;
   font: inherit;
   font-size: 18px;
@@ -646,17 +652,19 @@ function toMessage(error: unknown) {
 .post-link:hover,
 .post-link:focus-visible,
 .post-item.focused .post-link {
-  color: #0f766e;
+  color: var(--hpp-accent);
   text-decoration: underline;
 }
 
 .post-link:focus-visible {
-  outline: none;
+  outline: 2px solid var(--hpp-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .post-slug {
   margin: 6px 0 0;
-  color: #475569;
+  color: var(--hpp-muted);
   word-break: break-all;
   font-size: 13px;
 }
@@ -688,7 +696,7 @@ function toMessage(error: unknown) {
 .post-current {
   flex-shrink: 0;
   align-self: flex-start;
-  color: #0f766e;
+  color: var(--hpp-accent);
   font-size: 12px;
   font-weight: 700;
 }
@@ -705,8 +713,8 @@ function toMessage(error: unknown) {
   gap: 14px;
   padding: 18px;
   border-radius: 20px;
-  background: rgba(15, 23, 42, 0.03);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: var(--hpp-panel-bg);
+  border: 1px solid var(--hpp-panel-border);
   align-content: start;
 }
 
@@ -717,7 +725,7 @@ function toMessage(error: unknown) {
 
 .panel-copy {
   margin: 8px 0 0;
-  color: #475569;
+  color: var(--hpp-muted);
   line-height: 1.6;
 }
 
@@ -729,18 +737,18 @@ function toMessage(error: unknown) {
 .panel-field span {
   font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--hpp-heading);
 }
 
 .panel-input,
 .panel-textarea {
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.4);
+  border: 1px solid var(--hpp-input-border);
   border-radius: 14px;
   padding: 12px 14px;
   font: inherit;
-  color: #0f172a;
-  background: #fff;
+  color: var(--hpp-heading);
+  background: var(--hpp-input-bg);
 }
 
 .panel-input {
@@ -755,16 +763,16 @@ function toMessage(error: unknown) {
 .panel-input:focus,
 .panel-textarea:focus {
   outline: 0;
-  border-color: rgba(15, 118, 110, 0.6);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  border-color: var(--hpp-accent);
+  box-shadow: var(--hpp-focus-ring);
 }
 
 .action-button {
   border: 0;
   border-radius: 14px;
   padding: 12px 16px;
-  background: #0f766e;
-  color: #f8fafc;
+  background: var(--hpp-accent);
+  color: var(--hpp-hero-text);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -783,13 +791,13 @@ function toMessage(error: unknown) {
 }
 
 .password-message[data-tone='success'] {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--hpp-success-bg);
+  color: var(--hpp-success-text);
 }
 
 .password-message[data-tone='error'] {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--hpp-error-bg);
+  color: var(--hpp-error-text);
 }
 
 @media (max-width: 1080px) {

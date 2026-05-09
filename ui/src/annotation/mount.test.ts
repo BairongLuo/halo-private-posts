@@ -108,4 +108,66 @@ describe('annotation mount helpers', () => {
     expect(wrapper?.style.display).toBe('none')
     expect(wrapper?.getAttribute('aria-hidden')).toBe('true')
   })
+
+  it('adds a fallback annotation slot next to the hidden bundle field when Settings is open', () => {
+    window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
+    document.body.innerHTML = `
+      <div class="editor-toolbar tabs-wrapper">
+        <div class="tabbar-item" role="tab">Outline</div>
+        <div class="tabbar-item is-active" role="tab">Settings</div>
+      </div>
+      <form id="settings-form">
+        <div class="formkit-outer" id="internal-wrapper">
+          <textarea id="hpp-annotation-bundle"></textarea>
+        </div>
+      </form>
+    `
+
+    syncPrivatePostAnnotationMount()
+
+    const slot = document.querySelector('[data-hpp-annotation-tool-slot-fallback]')
+    const wrapper = document.getElementById('internal-wrapper')
+
+    expect(slot).toBeInstanceOf(HTMLElement)
+    expect(slot?.getAttribute('data-hpp-annotation-tool-slot')).toBe('true')
+    expect(slot?.nextElementSibling).toBe(wrapper)
+  })
+
+  it('does not add a fallback annotation slot before Settings is open', () => {
+    window.history.replaceState({}, '', '/console/posts/editor?name=demo-post')
+    document.body.innerHTML = `
+      <div class="editor-toolbar tabs-wrapper">
+        <div class="tabbar-item is-active" role="tab">Outline</div>
+        <div class="tabbar-item" role="tab">Settings</div>
+      </div>
+      <form id="settings-form">
+        <div class="formkit-outer" id="internal-wrapper">
+          <textarea id="hpp-annotation-bundle"></textarea>
+        </div>
+      </form>
+    `
+
+    syncPrivatePostAnnotationMount()
+
+    expect(document.querySelector('[data-hpp-annotation-tool-slot-fallback]')).toBeNull()
+  })
+
+  it('adds a fallback annotation slot on the posts list settings view when the bundle field exists', () => {
+    window.history.replaceState({}, '', '/console/posts')
+    document.body.innerHTML = `
+      <div class="drawer-shell">
+        <div class="formkit-outer" id="internal-wrapper">
+          <textarea id="hpp-annotation-bundle"></textarea>
+        </div>
+      </div>
+    `
+
+    syncPrivatePostAnnotationMount()
+
+    const slot = document.querySelector('[data-hpp-annotation-tool-slot-fallback]')
+    const wrapper = document.getElementById('internal-wrapper')
+
+    expect(slot).toBeInstanceOf(HTMLElement)
+    expect(slot?.nextElementSibling).toBe(wrapper)
+  })
 })

@@ -24,6 +24,7 @@
 4. 启用后确认以下入口可见：
    - 文章列表中的“已加锁 / 未加锁”状态标签，可点击跳转到编辑器
    - 编辑器设置面板里的“文章加密”模块
+   - 文章列表 `/console/posts` 原生文章设置抽屉里的“文章加密”模块
    - 前台 `/private-posts?slug=...`
    - 如需演练平台恢复，可直达隐藏的后台恢复兜底页 `/console/private-posts`
 5. 首次使用平台恢复能力时，插件会在服务端创建 Secret `halo-private-posts-site-recovery`。这个 Secret 是平台恢复根能力的一部分，必须纳入备份和访问控制。

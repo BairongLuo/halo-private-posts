@@ -77,7 +77,7 @@ function handleClick(): void {
 }
 
 .private-post-field-button:focus-visible {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--primary-color, #0f766e);
   outline-offset: 2px;
   border-radius: 999px;
 }

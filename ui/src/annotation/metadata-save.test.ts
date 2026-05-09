@@ -113,6 +113,22 @@ function shouldFetchSavedContentForFirstLock(args: {
   return args.postNameHint.trim().length > 0
 }
 
+function buildRefreshBundleRequest(args: {
+  postName: string
+  payloadFormat?: string
+  content?: string
+  metadata?: Record<string, unknown>
+  password: string
+}): Record<string, unknown> {
+  return {
+    postName: args.postName,
+    payloadFormat: args.payloadFormat,
+    content: args.content,
+    metadata: args.metadata,
+    nextPassword: args.password.trim() || undefined,
+  }
+}
+
 describe('metadata save encryption flow', () => {
   it('recognizes metadata save requests sent as a bare Post payload', () => {
     const payload = JSON.stringify({
@@ -157,5 +173,35 @@ describe('metadata save encryption flow', () => {
       contentRendered: '',
       postNameHint: 'demo-post',
     })).toBe(true)
+  })
+
+  it('includes the new password when refreshing an already locked bundle', () => {
+    expect(buildRefreshBundleRequest({
+      postName: 'demo-post',
+      payloadFormat: 'markdown',
+      content: '# updated',
+      metadata: {
+        title: 'Updated',
+      },
+      password: ' NextPass#2026 ',
+    })).toEqual({
+      postName: 'demo-post',
+      payloadFormat: 'markdown',
+      content: '# updated',
+      metadata: {
+        title: 'Updated',
+      },
+      nextPassword: 'NextPass#2026',
+    })
+  })
+
+  it('omits the password reset field when refreshing without a new password', () => {
+    expect(buildRefreshBundleRequest({
+      postName: 'demo-post',
+      password: '   ',
+    })).toMatchObject({
+      postName: 'demo-post',
+      nextPassword: undefined,
+    })
   })
 })

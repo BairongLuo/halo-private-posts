@@ -1,3 +1,4 @@
+import './styles/private-post-theme.css'
 import './reader.css'
 
 import type { PrivatePostView } from '@/types/private-post'

@@ -190,13 +190,23 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
 
                         return resolveRefreshDocument(body)
                             .flatMap(document -> siteRecoveryKeyService.unwrap(hexToBytes(siteRecoverySlot.getWrappedCek()))
-                                .map(contentKey -> privatePostBundleCryptoService.reencryptWithContentKey(
-                                    bundle,
-                                    contentKey,
-                                    document.payloadFormat(),
-                                    document.content(),
-                                    metadata
-                                )))
+                                .map(contentKey -> {
+                                    PrivatePost.Bundle nextBundle =
+                                        privatePostBundleCryptoService.reencryptWithContentKey(
+                                            bundle,
+                                            contentKey,
+                                            document.payloadFormat(),
+                                            document.content(),
+                                            metadata
+                                        );
+                                    if (StringUtils.hasText(body.nextPassword())) {
+                                        nextBundle.setPasswordSlot(passwordSlotCryptoService.wrapContentKey(
+                                            contentKey,
+                                            body.nextPassword()
+                                        ));
+                                    }
+                                    return nextBundle;
+                                }))
                             .flatMap(nextBundle -> {
                                 PrivatePost privatePost = new PrivatePost();
                                 syncPrivatePostSpecFromSource(privatePost, sourcePost, nextBundle);
@@ -518,7 +528,8 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
     private record SiteRecoveryRefreshRequest(String postName,
                                               @Nullable String payloadFormat,
                                               @Nullable String content,
-                                              @Nullable BundleMetadataPayload metadata) {
+                                              @Nullable BundleMetadataPayload metadata,
+                                              @Nullable String nextPassword) {
     }
 
     private record BundleMetadataPayload(String slug,

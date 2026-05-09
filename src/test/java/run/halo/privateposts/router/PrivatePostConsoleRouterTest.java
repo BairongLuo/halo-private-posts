@@ -420,6 +420,83 @@ class PrivatePostConsoleRouterTest {
     }
 
     @Test
+    void shouldRefreshBundleWithSiteRecoveryAndPersistNextPasswordSlot() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePost("demo-post");
+        PrivatePost.Bundle refreshedBundle = privatePost("demo-post").getSpec().getBundle();
+        PrivatePost.PasswordSlot nextPasswordSlot = passwordSlot("feedbeef", "somesalt", "deadbeef", "cafebabe");
+        AtomicReference<Post> updatedPost = new AtomicReference<>();
+        AtomicReference<PrivatePost> upsertedPrivatePost = new AtomicReference<>();
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        when(siteRecoveryKeyService.unwrap(any(byte[].class))).thenReturn(Mono.just(sampleContentKey()));
+        when(privatePostBundleCryptoService.reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            eq("markdown"),
+            eq("# updated body"),
+            any(PrivatePost.BundleMetadata.class)
+        )).thenReturn(refreshedBundle);
+        when(passwordSlotCryptoService.wrapContentKey(any(byte[].class), eq("NextPass#2026")))
+            .thenReturn(nextPasswordSlot);
+        when(extensionClient.update(any(Post.class))).thenAnswer(invocation -> {
+            Post post = invocation.getArgument(0);
+            updatedPost.set(post);
+            return Mono.just(post);
+        });
+        when(privatePostService.upsert(any(PrivatePost.class))).thenAnswer(invocation -> {
+            PrivatePost privatePost = invocation.getArgument(0);
+            upsertedPrivatePost.set(privatePost);
+            return Mono.just(privatePost);
+        });
+
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostBundleCryptoService,
+            privatePostService,
+            postContentService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/refresh-bundle")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "payloadFormat", "markdown",
+                "content", "# updated body",
+                "nextPassword", "NextPass#2026",
+                "metadata", Map.of(
+                    "slug", "demo-post-slug",
+                    "title", "Updated Title"
+                )
+            ))
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody()
+            .jsonPath("$.bundle.password_slot.wrapped_cek").isEqualTo("deadbeef")
+            .jsonPath("$.bundle.password_slot.auth_tag").isEqualTo("cafebabe");
+
+        verify(passwordSlotCryptoService).wrapContentKey(any(byte[].class), eq("NextPass#2026"));
+        assertThat(upsertedPrivatePost.get()).isNotNull();
+        assertThat(upsertedPrivatePost.get().getSpec().getBundle().getPasswordSlot().getWrappedCek())
+            .isEqualTo("deadbeef");
+
+        String bundleText = updatedPost.get().getMetadata().getAnnotations()
+            .get(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION);
+        JsonNode bundleJson = objectMapper.readTree(bundleText);
+        assertThat(bundleJson.path("password_slot").path("wrapped_cek").asText())
+            .isEqualTo("deadbeef");
+        assertThat(bundleJson.path("password_slot").path("auth_tag").asText())
+            .isEqualTo("cafebabe");
+    }
+
+    @Test
     void shouldRefreshBundleUsingSavedHeadContentWhenRequestDoesNotCarryContent() throws Exception {
         SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
         PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);

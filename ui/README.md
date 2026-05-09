@@ -6,7 +6,7 @@
    - 展示已加密文章
    - 后台平台恢复重置访问口令
 2. 文章设置里的私密正文工具
-   - 在编辑器设置面板里勾选启用或取消启用文章加密
+   - 在编辑器设置面板或文章列表原生设置抽屉里勾选启用或取消启用文章加密
    - 跟随 Halo 原生保存自动维护注解里的 `bundle`
 3. 前台 reader
    - 原文章页内联锁定态
@@ -22,9 +22,10 @@
   - Console 恢复接口 `/apis/api.console.halo.run/v1alpha1/private-posts/*`
 - 能力：
   - 通过 `post:list-item:field:create` 在文章列表显示私密正文状态
+  - 通过 `post:list-item:operation:create` 在文章列表操作菜单提供“文章加密”入口
   - 按 `postName` 载入真实 Halo 文章信息
   - 通过平台恢复接口重写 `password_slot`
-  - 不再出现在 Halo 后台菜单中，只保留直达路由作为恢复兜底
+  - 不再出现在 Halo 后台主菜单中，只保留直达路由作为恢复兜底
 
 ## 文章设置工具
 
@@ -32,6 +33,7 @@
 - 挂载：`src/annotation/mount.ts`
 - 能力：
   - 在编辑器设置面板注入“文章加密”模块
+  - 在 `/console/posts` 文章列表的原生设置抽屉中，如果 Halo 已经渲染出文章注解字段，则补一个设置区 fallback slot，并把同一模块挂进去
   - 主编辑器保存正文和设置面板保存元数据两条链路都能识别
   - 首次加锁时浏览器本地生成 `EncryptedPrivatePostBundle v3`
   - 已加密文章再次保存时调用服务端恢复链路重算密文
