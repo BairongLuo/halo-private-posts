@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Content, Post, PostRequest } from '@halo-dev/api-client'
+import type { Content, Post } from '@halo-dev/api-client'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
@@ -25,8 +25,19 @@ import type {
 } from '@/types/private-post'
 import { encryptPrivatePost, parseBundleJson } from '@/utils/private-post-crypto'
 import { findEditorSaveButton } from './editor-dom'
+import {
+  extractPostNameFromResponse,
+  extractPostNameFromSaveUrl,
+  isPostContentSaveRequest,
+  parseContentBody,
+  parseJson,
+  parseMetadataPostBody,
+  parsePostRequestBody,
+  resolvePendingSaveAction,
+  shouldManageEncryptionOnSave,
+  type PendingSaveAction,
+} from './save-request'
 
-type PendingSaveAction = 'none' | 'lock' | 'unlock' | 'refresh'
 type SaveAction = PendingSaveAction | 'metadata-sync'
 type StatusTone = 'neutral' | 'valid' | 'invalid' | 'success'
 
@@ -79,21 +90,10 @@ const parsedBundle = computed<EncryptedPrivatePostBundle | null>(() => {
 
 const hasBundle = computed(() => bundleText.value.trim().length > 0)
 
-const pendingSaveAction = computed<PendingSaveAction>(() => {
-  if (!encryptionEnabled.value && hasBundle.value) {
-    return 'unlock'
-  }
-
-  if (encryptionEnabled.value && !hasBundle.value) {
-    return 'lock'
-  }
-
-  if (encryptionEnabled.value && hasBundle.value) {
-    return 'refresh'
-  }
-
-  return 'none'
-})
+const pendingSaveAction = computed<PendingSaveAction>(() => resolvePendingSaveAction({
+  encryptionEnabled: encryptionEnabled.value,
+  hasBundle: hasBundle.value,
+}))
 
 const bundleParseError = computed(() => {
   const text = bundleText.value.trim()
@@ -727,7 +727,13 @@ async function prepareDraftSaveRequest(args: {
   method: string
   url: string
 }): Promise<PreparedDraftSaveResult | null> {
-  if (!shouldManageEncryptionOnSave(args.method, args.url)) {
+  if (!shouldManageEncryptionOnSave({
+    method: args.method,
+    url: args.url,
+    encryptionEnabled: encryptionEnabled.value,
+    hasBundle: hasBundle.value,
+    password: password.value,
+  })) {
     return null
   }
 
@@ -871,111 +877,6 @@ async function resolvePostNameForSave(url: string): Promise<string> {
   }
 
   return resolvedPostName
-}
-
-function shouldManageEncryptionOnSave(method: string, url: string): boolean {
-  if (!encryptionEnabled.value && !hasBundle.value && password.value.trim().length === 0) {
-    return false
-  }
-
-  const pathname = parseRequestPathname(url)
-  if (!pathname) {
-    return false
-  }
-
-  const normalizedMethod = method.toUpperCase()
-  if (normalizedMethod === 'POST') {
-    return pathname === '/apis/api.console.halo.run/v1alpha1/posts'
-      || pathname === '/apis/content.halo.run/v1alpha1/posts'
-  }
-
-  if (normalizedMethod !== 'PUT') {
-    return false
-  }
-
-  if (isPostContentSavePath(pathname)) {
-    return true
-  }
-
-  const segments = pathname.split('/').filter(Boolean)
-  return segments.length === 5
-    && segments[0] === 'apis'
-    && (
-      (
-        segments[1] === 'api.console.halo.run'
-        && segments[2] === 'v1alpha1'
-        && segments[3] === 'posts'
-      )
-      || (
-        segments[1] === 'content.halo.run'
-        && segments[2] === 'v1alpha1'
-        && segments[3] === 'posts'
-      )
-    )
-}
-
-function isPostContentSaveRequest(method: string, url: string): boolean {
-  return method.toUpperCase() === 'PUT' && isPostContentSavePath(parseRequestPathname(url))
-}
-
-function isPostContentSavePath(pathname: string): boolean {
-  const segments = pathname.split('/').filter(Boolean)
-  return segments.length === 6
-    && segments[0] === 'apis'
-    && segments[1] === 'api.console.halo.run'
-    && segments[2] === 'v1alpha1'
-    && segments[3] === 'posts'
-    && segments[5] === 'content'
-}
-
-function parsePostRequestBody(bodyText: string): PostRequest | null {
-  const parsed = parseJson(bodyText)
-  if (!parsed || typeof parsed !== 'object') {
-    return null
-  }
-
-  const postRequest = parsed as Partial<PostRequest>
-  if (!postRequest.post || !postRequest.content) {
-    return null
-  }
-
-  return postRequest as PostRequest
-}
-
-function parseMetadataPostBody(bodyText: string): Post | null {
-  const parsed = parseJson(bodyText)
-  if (!parsed || typeof parsed !== 'object') {
-    return null
-  }
-
-  const post = parsed as Partial<Post>
-  if (!post.spec || !post.metadata) {
-    return null
-  }
-
-  if ('content' in (parsed as Record<string, unknown>)) {
-    return null
-  }
-
-  return post as Post
-}
-
-function parseContentBody(bodyText: string): Content | null {
-  const parsed = parseJson(bodyText)
-  if (!parsed || typeof parsed !== 'object') {
-    return null
-  }
-
-  const content = parsed as Partial<Content>
-  if (typeof content.raw !== 'string' && typeof content.content !== 'string') {
-    return null
-  }
-
-  return {
-    raw: typeof content.raw === 'string' ? content.raw : '',
-    content: typeof content.content === 'string' ? content.content : '',
-    rawType: typeof content.rawType === 'string' ? content.rawType : '',
-  } as Content
 }
 
 function buildMetadataFromPost(post: Post): BundleMetadata {
@@ -1392,50 +1293,6 @@ async function readFetchJsonBody(response: Response): Promise<unknown> {
   }
 }
 
-function extractPostNameFromSaveUrl(url: string, method: string): string {
-  if (method.toUpperCase() === 'POST') {
-    return ''
-  }
-
-  const pathname = parseRequestPathname(url)
-  const segments = pathname.split('/').filter(Boolean)
-  if (
-    segments.length === 5
-    && segments[0] === 'apis'
-    && segments[2] === 'v1alpha1'
-    && segments[3] === 'posts'
-    && (
-      segments[1] === 'api.console.halo.run'
-      || segments[1] === 'content.halo.run'
-    )
-  ) {
-    return decodeURIComponent(segments[4] ?? '')
-  }
-
-  if (isPostContentSavePath(pathname)) {
-    return decodeURIComponent(segments[4] ?? '')
-  }
-
-  return ''
-}
-
-function extractPostNameFromResponse(responseData: unknown): string {
-  if (!responseData || typeof responseData !== 'object') {
-    return ''
-  }
-
-  const metadata = (responseData as { metadata?: { name?: unknown } }).metadata
-  return typeof metadata?.name === 'string' ? metadata.name : ''
-}
-
-function parseRequestPathname(url: string): string {
-  try {
-    return new URL(url, window.location.origin).pathname
-  } catch {
-    return ''
-  }
-}
-
 function readFetchMethod(input: RequestInfo | URL, init?: RequestInit): string {
   if (init?.method) {
     return init.method.toUpperCase()
@@ -1458,18 +1315,6 @@ function readFetchUrl(input: RequestInfo | URL): string {
   }
 
   return input.url
-}
-
-function parseJson(value: string): unknown {
-  if (!value) {
-    return null
-  }
-
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
 }
 
 function readInputValue(selectors: string[]): string {

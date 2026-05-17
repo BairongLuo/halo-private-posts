@@ -1,5 +1,15 @@
 package run.halo.privateposts.router;
 
+import static run.halo.privateposts.model.PrivatePostBundleValidator.BUNDLE_CIPHER;
+import static run.halo.privateposts.model.PrivatePostBundleValidator.BUNDLE_KDF;
+import static run.halo.privateposts.model.PrivatePostBundleValidator.BUNDLE_VERSION;
+import static run.halo.privateposts.model.PrivatePostBundleValidator.PASSWORD_SLOT_KDF;
+import static run.halo.privateposts.model.PrivatePostBundleValidator.PAYLOAD_FORMAT_HTML;
+import static run.halo.privateposts.model.PrivatePostBundleValidator.PAYLOAD_FORMAT_MARKDOWN;
+import static run.halo.privateposts.model.PrivatePostBundleValidator.SITE_RECOVERY_ALGORITHM;
+import static run.halo.privateposts.model.PrivatePostBundleValidator.SITE_RECOVERY_KID;
+import static run.halo.privateposts.sync.PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,18 +48,9 @@ import run.halo.privateposts.service.SiteRecoveryKeyService;
 @Configuration(proxyBeanMethods = false)
 public class PrivatePostConsoleRouter implements CustomEndpoint {
     private static final GroupVersion API_VERSION = new GroupVersion("api.console.halo.run", "v1alpha1");
-    private static final String PRIVATE_POST_BUNDLE_ANNOTATION = "privateposts.halo.run/bundle";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
         .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         .findAndRegisterModules();
-    private static final int BUNDLE_VERSION = 3;
-    private static final String PAYLOAD_FORMAT_MARKDOWN = "markdown";
-    private static final String PAYLOAD_FORMAT_HTML = "html";
-    private static final String BUNDLE_CIPHER = "aes-256-gcm";
-    private static final String BUNDLE_KDF = "envelope";
-    private static final String PASSWORD_SLOT_KDF = "scrypt";
-    private static final String SITE_RECOVERY_KID = "site-recovery-rsa-oaep-sha256-v1";
-    private static final String SITE_RECOVERY_ALGORITHM = "RSA-OAEP-256";
     private static final int AES_GCM_IV_BYTES = 12;
     private static final int AES_GCM_AUTH_TAG_BYTES = 16;
     private static final int PASSWORD_SLOT_SALT_BYTES = 16;

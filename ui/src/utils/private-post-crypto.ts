@@ -332,33 +332,7 @@ export async function decryptPrivatePost(
   return await decryptDocumentWithContentKey(normalizedBundle, cek)
 }
 
-export async function rewrapPrivatePostPasswordWithContentKey(
-  bundle: EncryptedPrivatePostBundle,
-  contentKeyBytes: Uint8Array,
-  nextPassword: string
-): Promise<EncryptedPrivatePostBundle> {
-  const normalizedBundle = normalizeBundle(bundle)
-  if (nextPassword.length === 0) {
-    throw new Error('访问密码不能为空')
-  }
-
-  validateSupportedBundle(normalizedBundle)
-
-  const wrappedContentKey = await createPasswordWrappedContentKey(nextPassword, contentKeyBytes)
-
-  return {
-    ...normalizedBundle,
-    metadata: {
-      ...normalizedBundle.metadata,
-    },
-    site_recovery_slot: {
-      ...normalizedBundle.site_recovery_slot,
-    },
-    password_slot: buildPasswordSlotFromWrappedContentKey(wrappedContentKey),
-  }
-}
-
-export async function renderMarkdown(markdown: string): Promise<string> {
+async function renderMarkdown(markdown: string): Promise<string> {
   return safeMarked.parse(markdown, { async: false })
 }
 

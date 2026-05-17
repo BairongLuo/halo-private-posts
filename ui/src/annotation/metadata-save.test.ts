@@ -1,133 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-function parseJson(value: string): unknown {
-  if (!value) {
-    return null
-  }
-
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
-}
-
-function parseMetadataPostBody(bodyText: string): {
-  metadata: {
-    name?: string
-  }
-  spec: {
-    title?: string
-    slug?: string
-  }
-} | null {
-  const parsed = parseJson(bodyText)
-  if (!parsed || typeof parsed !== 'object') {
-    return null
-  }
-
-  const post = parsed as {
-    metadata?: {
-      name?: string
-    }
-    spec?: {
-      title?: string
-      slug?: string
-    }
-    content?: unknown
-  }
-
-  if (!post.spec || !post.metadata) {
-    return null
-  }
-
-  if ('content' in post) {
-    return null
-  }
-
-  return {
-    metadata: post.metadata,
-    spec: post.spec,
-  }
-}
-
-function shouldManageEncryptionOnSave(args: {
-  method: string
-  pathname: string
-  encryptionEnabled: boolean
-  hasBundle: boolean
-  password: string
-}): boolean {
-  if (!args.encryptionEnabled && !args.hasBundle && args.password.trim().length === 0) {
-    return false
-  }
-
-  const normalizedMethod = args.method.toUpperCase()
-  if (normalizedMethod === 'POST') {
-    return args.pathname === '/apis/api.console.halo.run/v1alpha1/posts'
-      || args.pathname === '/apis/content.halo.run/v1alpha1/posts'
-  }
-
-  if (normalizedMethod !== 'PUT') {
-    return false
-  }
-
-  const segments = args.pathname.split('/').filter(Boolean)
-  if (
-    segments.length === 6
-    && segments[0] === 'apis'
-    && segments[1] === 'api.console.halo.run'
-    && segments[2] === 'v1alpha1'
-    && segments[3] === 'posts'
-    && segments[5] === 'content'
-  ) {
-    return true
-  }
-
-  return segments.length === 5
-    && segments[0] === 'apis'
-    && segments[2] === 'v1alpha1'
-    && segments[3] === 'posts'
-    && (
-      segments[1] === 'api.console.halo.run'
-      || segments[1] === 'content.halo.run'
-    )
-}
-
-function shouldFetchSavedContentForFirstLock(args: {
-  hasBundle: boolean
-  encryptionEnabled: boolean
-  password: string
-  contentRaw: string
-  contentRendered: string
-  postNameHint: string
-}): boolean {
-  if (!args.encryptionEnabled || args.hasBundle || args.password.trim().length === 0) {
-    return false
-  }
-
-  if (args.contentRaw.trim() || args.contentRendered.trim()) {
-    return false
-  }
-
-  return args.postNameHint.trim().length > 0
-}
-
-function buildRefreshBundleRequest(args: {
-  postName: string
-  payloadFormat?: string
-  content?: string
-  metadata?: Record<string, unknown>
-  password: string
-}): Record<string, unknown> {
-  return {
-    postName: args.postName,
-    payloadFormat: args.payloadFormat,
-    content: args.content,
-    metadata: args.metadata,
-    nextPassword: args.password.trim() || undefined,
-  }
-}
+import {
+  extractPostNameFromResponse,
+  extractPostNameFromSaveUrl,
+  parseContentBody,
+  parseMetadataPostBody,
+  shouldManageEncryptionOnSave,
+} from '@/annotation/save-request'
 
 describe('metadata save encryption flow', () => {
   it('recognizes metadata save requests sent as a bare Post payload', () => {
@@ -143,7 +22,7 @@ describe('metadata save encryption flow', () => {
       },
     })
 
-    expect(parseMetadataPostBody(payload)).toEqual({
+    expect(parseMetadataPostBody(payload)).toMatchObject({
       metadata: {
         name: 'demo-post',
       },
@@ -154,54 +33,72 @@ describe('metadata save encryption flow', () => {
     })
   })
 
-  it('matches the official metadata save endpoint', () => {
+  it('does not treat PostRequest payloads as metadata-only saves', () => {
+    const payload = JSON.stringify({
+      post: {
+        metadata: {
+          name: 'demo-post',
+        },
+        spec: {
+          title: 'Demo Post',
+          slug: 'demo-post',
+        },
+      },
+      content: {
+        raw: '# Demo',
+      },
+    })
+
+    expect(parseMetadataPostBody(payload)).toBeNull()
+  })
+
+  it('matches the official metadata save endpoint when encryption state is dirty', () => {
     expect(shouldManageEncryptionOnSave({
       method: 'PUT',
-      pathname: '/apis/content.halo.run/v1alpha1/posts/demo-post',
+      url: '/apis/content.halo.run/v1alpha1/posts/demo-post',
       encryptionEnabled: true,
       hasBundle: false,
       password: 'secret',
     })).toBe(true)
   })
 
-  it('falls back to saved server content for first lock during metadata-only save', () => {
-    expect(shouldFetchSavedContentForFirstLock({
+  it('ignores save requests when there is no encryption state to persist', () => {
+    expect(shouldManageEncryptionOnSave({
+      method: 'PUT',
+      url: '/apis/content.halo.run/v1alpha1/posts/demo-post',
+      encryptionEnabled: false,
       hasBundle: false,
-      encryptionEnabled: true,
-      password: 'secret',
-      contentRaw: '',
-      contentRendered: '',
-      postNameHint: 'demo-post',
-    })).toBe(true)
-  })
-
-  it('includes the new password when refreshing an already locked bundle', () => {
-    expect(buildRefreshBundleRequest({
-      postName: 'demo-post',
-      payloadFormat: 'markdown',
-      content: '# updated',
-      metadata: {
-        title: 'Updated',
-      },
-      password: ' NextPass#2026 ',
-    })).toEqual({
-      postName: 'demo-post',
-      payloadFormat: 'markdown',
-      content: '# updated',
-      metadata: {
-        title: 'Updated',
-      },
-      nextPassword: 'NextPass#2026',
-    })
-  })
-
-  it('omits the password reset field when refreshing without a new password', () => {
-    expect(buildRefreshBundleRequest({
-      postName: 'demo-post',
       password: '   ',
-    })).toMatchObject({
-      postName: 'demo-post',
-      nextPassword: undefined,
+    })).toBe(false)
+  })
+
+  it('extracts post names from metadata and content save endpoints', () => {
+    expect(extractPostNameFromSaveUrl(
+      '/apis/content.halo.run/v1alpha1/posts/demo-post',
+      'PUT'
+    )).toBe('demo-post')
+    expect(extractPostNameFromSaveUrl(
+      '/apis/api.console.halo.run/v1alpha1/posts/demo%20post/content',
+      'PUT'
+    )).toBe('demo post')
+  })
+
+  it('extracts post names from save responses', () => {
+    expect(extractPostNameFromResponse({
+      metadata: {
+        name: 'demo-post',
+      },
+    })).toBe('demo-post')
+  })
+
+  it('normalizes content save payloads', () => {
+    expect(parseContentBody(JSON.stringify({
+      raw: '# Demo',
+      rawType: 'markdown',
+    }))).toMatchObject({
+      raw: '# Demo',
+      content: '',
+      rawType: 'markdown',
     })
   })
 })

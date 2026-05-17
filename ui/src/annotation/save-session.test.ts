@@ -1,59 +1,33 @@
 import { describe, expect, it } from 'vitest'
 
-function resolveWorkingEncryptionPassword(inputPassword: string, sessionPassword: string): string {
-  const normalizedInputPassword = inputPassword.trim()
-  if (normalizedInputPassword) {
-    return normalizedInputPassword
-  }
+import { resolvePendingSaveAction } from '@/annotation/save-request'
 
-  return sessionPassword
-}
+describe('annotation pending save action logic', () => {
+  it('locks when encryption is enabled and no bundle exists yet', () => {
+    expect(resolvePendingSaveAction({
+      encryptionEnabled: true,
+      hasBundle: false,
+    })).toBe('lock')
+  })
 
-function resolvePendingSaveAction(args: {
-  encryptionEnabled: boolean
-  hasBundle: boolean
-  inputPassword: string
-  sessionPassword: string
-}): 'none' | 'lock' | 'unlock' | 'refresh' {
-  if (!args.encryptionEnabled && args.hasBundle) {
-    return 'unlock'
-  }
+  it('unlocks when encryption is disabled and a bundle exists', () => {
+    expect(resolvePendingSaveAction({
+      encryptionEnabled: false,
+      hasBundle: true,
+    })).toBe('unlock')
+  })
 
-  if (args.encryptionEnabled && !args.hasBundle) {
-    return 'lock'
-  }
-
-  if (
-    args.encryptionEnabled
-    && args.hasBundle
-    && resolveWorkingEncryptionPassword(args.inputPassword, args.sessionPassword).length > 0
-  ) {
-    return 'refresh'
-  }
-
-  return 'none'
-}
-
-describe('annotation save session logic', () => {
-  it('treats a remembered session password as refresh-capable', () => {
+  it('refreshes an existing encrypted bundle without requiring a local password', () => {
     expect(resolvePendingSaveAction({
       encryptionEnabled: true,
       hasBundle: true,
-      inputPassword: '',
-      sessionPassword: 'remembered-secret',
     })).toBe('refresh')
   })
 
-  it('prefers the current input password over the remembered session password', () => {
-    expect(resolveWorkingEncryptionPassword(' new-secret ', 'remembered-secret')).toBe('new-secret')
-  })
-
-  it('does not refresh when encryption is enabled but no password is available', () => {
+  it('does nothing when encryption is disabled and no bundle exists', () => {
     expect(resolvePendingSaveAction({
-      encryptionEnabled: true,
-      hasBundle: true,
-      inputPassword: '',
-      sessionPassword: '',
+      encryptionEnabled: false,
+      hasBundle: false,
     })).toBe('none')
   })
 })
