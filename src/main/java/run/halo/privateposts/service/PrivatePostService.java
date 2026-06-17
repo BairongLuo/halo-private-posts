@@ -152,7 +152,7 @@ public class PrivatePostService {
             .flatMap(this::deleteIfStale)
             .filter(Boolean::booleanValue)
             .count()
-            .map(Math::toIntExact);
+            .map(l -> Math.toIntExact(l));
     }
 
     public Mono<Integer> reconcileMappings() {
@@ -160,7 +160,7 @@ public class PrivatePostService {
             .flatMap(this::upsertFromSourcePost)
             .filter(Boolean::booleanValue)
             .count()
-            .map(Math::toIntExact);
+            .map(l -> Math.toIntExact(l));
     }
 
     private Mono<Boolean> deleteIfStale(PrivatePost privatePost) {
@@ -217,7 +217,7 @@ public class PrivatePostService {
         return listAll()
             .flatMap(this::deleteDirectly)
             .count()
-            .map(Math::toIntExact);
+            .map(l -> Math.toIntExact(l));
     }
 
     public Mono<DeleteAllMappingsResult> deleteAllMappingsBestEffort() {
@@ -300,7 +300,10 @@ public class PrivatePostService {
         }
 
         MetadataOperator metadata = post.getMetadata();
-        Map<String, String> annotations = metadata == null ? null : metadata.getAnnotations();
+        if (metadata == null) {
+            return false;
+        }
+        Map<String, String> annotations = metadata.getAnnotations();
         if (annotations == null) {
             return false;
         }
@@ -490,7 +493,7 @@ public class PrivatePostService {
                     .bind("prefix", PRIVATE_POST_STORE_NAME_LIKE)
                     .fetch()
                     .rowsUpdated()
-                    .map(Math::toIntExact);
+                    .map(l -> Math.toIntExact(l));
             } catch (ReflectiveOperationException error) {
                 return Mono.error(error);
             }
