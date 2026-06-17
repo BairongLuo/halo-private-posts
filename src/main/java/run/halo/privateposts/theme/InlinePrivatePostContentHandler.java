@@ -2,7 +2,6 @@ package run.halo.privateposts.theme;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.HtmlUtils;
@@ -20,7 +19,7 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
     private static final int IDLE_TIMEOUT_MS = 300000;
 
     @Override
-    public Mono<PostContentContext> handle(@NonNull PostContentContext postContent) {
+    public Mono<PostContentContext> handle(PostContentContext postContent) {
         Post post = postContent.getPost();
         if (!PrivatePostService.isActivePrivatePostSource(post)
             || post.getMetadata() == null

@@ -8,7 +8,6 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
@@ -112,9 +111,8 @@ public class PostPrivatePostSyncListener {
         return privatePostService.upsert(privatePost).then();
     }
 
-    @Nullable
     public static PrivatePost.Bundle readBundleFromAnnotations(String postName,
-                                                               @Nullable Map<String, String> annotations) {
+                                                               Map<String, String> annotations) {
         if (annotations == null) {
             return null;
         }
@@ -152,7 +150,7 @@ public class PostPrivatePostSyncListener {
         return null;
     }
 
-    private static String readPublishedAt(@Nullable Instant publishTime) {
+    private static String readPublishedAt(Instant publishTime) {
         return publishTime == null ? null : publishTime.toString();
     }
 }

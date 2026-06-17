@@ -24,7 +24,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
-import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
@@ -422,7 +421,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
         return result;
     }
 
-    private static void validateBundleForPasswordReset(@Nullable PrivatePost.Bundle bundle) {
+    private static void validateBundleForPasswordReset(PrivatePost.Bundle bundle) {
         if (bundle == null) {
             throw new IllegalArgumentException("Bundle 缺失");
         }
@@ -448,7 +447,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
         validateMetadata(bundle.getMetadata());
     }
 
-    private static void validatePasswordSlot(@Nullable PrivatePost.PasswordSlot passwordSlot) {
+    private static void validatePasswordSlot(PrivatePost.PasswordSlot passwordSlot) {
         if (passwordSlot == null) {
             throw new IllegalArgumentException("password_slot 缺失");
         }
@@ -463,7 +462,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
         requireHexExact(passwordSlot.getAuthTag(), AES_GCM_AUTH_TAG_BYTES, "password_slot.auth_tag");
     }
 
-    private static void validateSiteRecoverySlot(@Nullable PrivatePost.SiteRecoverySlot siteRecoverySlot) {
+    private static void validateSiteRecoverySlot(PrivatePost.SiteRecoverySlot siteRecoverySlot) {
         if (siteRecoverySlot == null) {
             throw new IllegalArgumentException("site_recovery_slot 缺失");
         }
@@ -480,7 +479,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
             "site_recovery_slot.wrapped_cek");
     }
 
-    private static void validateMetadata(@Nullable PrivatePost.BundleMetadata metadata) {
+    private static void validateMetadata(PrivatePost.BundleMetadata metadata) {
         if (metadata == null) {
             throw new IllegalArgumentException("metadata 缺失");
         }
@@ -489,21 +488,21 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
         requireText(metadata.getTitle(), "metadata.title");
     }
 
-    private static void requireHexExact(@Nullable String value, int expectedBytes, String fieldName) {
+    private static void requireHexExact(String value, int expectedBytes, String fieldName) {
         requireHex(value, fieldName);
         if ((value.trim().length() / 2) != expectedBytes) {
             throw new IllegalArgumentException(fieldName + " 长度非法");
         }
     }
 
-    private static void requireHexAtLeast(@Nullable String value, int minimumBytes, String fieldName) {
+    private static void requireHexAtLeast(String value, int minimumBytes, String fieldName) {
         requireHex(value, fieldName);
         if ((value.trim().length() / 2) < minimumBytes) {
             throw new IllegalArgumentException(fieldName + " 长度非法");
         }
     }
 
-    private static void requireHex(@Nullable String value, String fieldName) {
+    private static void requireHex(String value, String fieldName) {
         String normalized = requireText(value, fieldName).trim();
         if ((normalized.length() % 2) != 0) {
             throw new IllegalArgumentException(fieldName + " 长度非法");
@@ -516,7 +515,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
         }
     }
 
-    private static String requireText(@Nullable String value, String fieldName) {
+    private static String requireText(String value, String fieldName) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(fieldName + " 不能为空");
         }
@@ -527,16 +526,16 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
     }
 
     private record SiteRecoveryRefreshRequest(String postName,
-                                              @Nullable String payloadFormat,
-                                              @Nullable String content,
-                                              @Nullable BundleMetadataPayload metadata,
-                                              @Nullable String nextPassword) {
+                                              String payloadFormat,
+                                              String content,
+                                              BundleMetadataPayload metadata,
+                                              String nextPassword) {
     }
 
     private record BundleMetadataPayload(String slug,
                                          String title,
-                                         @Nullable String excerpt,
-                                         @Nullable String publishedAt) {
+                                         String excerpt,
+                                         String publishedAt) {
         private PrivatePost.BundleMetadata toBundleMetadata() {
             if (!StringUtils.hasText(slug) || !StringUtils.hasText(title)) {
                 throw new IllegalArgumentException("metadata.slug 和 metadata.title 不能为空");

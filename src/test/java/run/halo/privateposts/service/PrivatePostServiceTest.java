@@ -263,7 +263,8 @@ class PrivatePostServiceTest {
         PrivatePost mapping = privatePost("slug-fallback-post");
 
         when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
-            .thenReturn(Flux.empty(), Flux.just(mapping));
+            .thenReturn(Flux.empty())
+            .thenReturn(Flux.just(mapping));
 
         PrivatePost result = service.getBySlug("slug-fallback-post-slug").block();
 
@@ -324,7 +325,8 @@ class PrivatePostServiceTest {
         when(client.fetch(PrivatePost.class, "hello-private-post"))
             .thenReturn(Mono.empty());
         when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
-            .thenReturn(Flux.empty(), Flux.empty());
+            .thenReturn(Flux.empty())
+            .thenReturn(Flux.empty());
         when(client.create(any(PrivatePost.class)))
             .thenAnswer(invocation -> {
                 PrivatePost privatePost = invocation.getArgument(0);
@@ -350,7 +352,8 @@ class PrivatePostServiceTest {
         AtomicReference<PrivatePost> created = new AtomicReference<>();
 
         when(client.fetch(PrivatePost.class, "hello-private-post"))
-            .thenReturn(Mono.just(deletedMapping), Mono.empty());
+            .thenReturn(Mono.just(deletedMapping))
+            .thenReturn(Mono.empty());
         when(client.listAll(eq(PrivatePost.class), any(ListOptions.class), any(Sort.class)))
             .thenReturn(Flux.empty());
         doReturn(Mono.empty()).when(service).deleteViaStoreFallback("hello-private-post", 13L);
@@ -458,10 +461,15 @@ class PrivatePostServiceTest {
         return byteHex.repeat(byteCount);
     }
 
-    private static final class FakeStoreClient {
+    private interface StoreDeleteClient {
+        Mono<Void> delete(String name, Long version);
+    }
+
+    private static final class FakeStoreClient implements StoreDeleteClient {
         private String deletedName;
         private Long deletedVersion;
 
+        @Override
         public Mono<Void> delete(String name, Long version) {
             this.deletedName = name;
             this.deletedVersion = version;
@@ -471,9 +479,9 @@ class PrivatePostServiceTest {
 
     private static final class ReactiveClientWithNestedStore implements ReactiveExtensionClient {
         @SuppressWarnings("unused")
-        private final FakeStoreClient client;
+        private final StoreDeleteClient client;
 
-        private ReactiveClientWithNestedStore(FakeStoreClient client) {
+        private ReactiveClientWithNestedStore(StoreDeleteClient client) {
             this.client = client;
         }
 
@@ -485,6 +493,7 @@ class PrivatePostServiceTest {
         }
 
         @Override
+        @Deprecated
         public <E extends Extension> Mono<ListResult<E>> list(Class<E> type,
                                                               Predicate<E> predicate,
                                                               Comparator<E> comparator,
@@ -550,6 +559,7 @@ class PrivatePostServiceTest {
         }
 
         @Override
+        @SuppressWarnings("removal")
         public Mono<run.halo.app.extension.JsonExtension> getJsonExtension(GroupVersionKind gvk,
                                                                            String name) {
             throw new UnsupportedOperationException();
@@ -571,6 +581,7 @@ class PrivatePostServiceTest {
         }
 
         @Override
+        @SuppressWarnings("removal")
         public IndexedQueryEngine indexedQueryEngine() {
             throw new UnsupportedOperationException();
         }
