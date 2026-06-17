@@ -78,7 +78,7 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
                           id="hpp-password-%s"
                           data-hpp-password
                           type="password"
-                          autocomplete="current-password"
+                          autocomplete="off"
                         >
                       </label>
                       <div class="hpp-actions">

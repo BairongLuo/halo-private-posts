@@ -42,7 +42,7 @@ class InlinePrivatePostContentHandlerTest {
         assertThat(result.getContent()).contains("/private-posts/data?slug=hello-halo-slug");
         assertThat(result.getContent()).contains("公开摘要");
         assertThat(result.getContent()).contains("data-hpp-status data-status=\"neutral\" hidden");
-        assertThat(result.getContent()).doesNotContain("这篇文章的正文已加密托管。输入访问密码后，正文会在浏览器本地解密。");
+        assertThat(result.getContent()).contains("autocomplete=\"off\"");
         assertThat(result.getContent()).doesNotContain("独立阅读页");
     }
 

@@ -1,6 +1,5 @@
 package run.halo.privateposts;
 
-import java.util.Optional;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +20,6 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
     private static final Logger log = LoggerFactory.getLogger(HaloPrivatePostsPlugin.class);
 
     private final SchemeManager schemeManager;
-    private final ExtensionClient extensionClient;
     private final PluginUninstallCleanupService cleanupService;
     private final PrivatePostService privatePostService;
 
@@ -33,7 +31,6 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
         this(
             pluginContext,
             schemeManager,
-            extensionClient,
             new PluginUninstallCleanupService(extensionClient, privatePostService),
             privatePostService
         );
@@ -41,12 +38,10 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
 
     HaloPrivatePostsPlugin(PluginContext pluginContext,
                            SchemeManager schemeManager,
-                           ExtensionClient extensionClient,
                            PluginUninstallCleanupService cleanupService,
                            PrivatePostService privatePostService) {
         super(pluginContext);
         this.schemeManager = schemeManager;
-        this.extensionClient = extensionClient;
         this.cleanupService = cleanupService;
         this.privatePostService = privatePostService;
     }
@@ -86,26 +81,19 @@ public class HaloPrivatePostsPlugin extends BasePlugin {
 
     @Override
     public void stop() {
-        cleanupOnUninstallIfNeeded();
-
         Scheme scheme = schemeManager.get(PrivatePost.class);
         if (scheme != null) {
             schemeManager.unregister(scheme);
         }
     }
 
-    void cleanupOnUninstallIfNeeded() {
-        try {
-            Optional<run.halo.app.core.extension.Plugin> plugin = extensionClient.fetch(
-                run.halo.app.core.extension.Plugin.class,
-                getContext().getName()
-            );
-            if (plugin.isEmpty()
-                || plugin.get().getMetadata() == null
-                || plugin.get().getMetadata().getDeletionTimestamp() == null) {
-                return;
-            }
+    @Override
+    public void delete() {
+        cleanupOnUninstall();
+    }
 
+    void cleanupOnUninstall() {
+        try {
             PluginUninstallCleanupService.CleanupSummary summary = cleanupService.cleanup();
             if (summary.hasFailures()) {
                 log.warn(
