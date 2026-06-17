@@ -60,6 +60,78 @@ class PrivatePostPageRouterTest {
     }
 
     @Test
+    void shouldReturnDescriptionInBundleDataResponse() {
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);
+        when(privatePostService.getPublicViewBySlug("hello-halo"))
+            .thenReturn(Mono.just(privatePostViewWithDescription("hello-halo", "请输入访问口令继续阅读")));
+        WebTestClient client = bindClient(
+            new PrivatePostPageRouter(templateNameResolver, privatePostService)
+        );
+
+        client.get()
+            .uri("/private-posts/data?slug=hello-halo")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().valueEquals("Cache-Control", "no-store")
+            .expectBody()
+            .jsonPath("$.description").isEqualTo("请输入访问口令继续阅读");
+    }
+
+    @Test
+    void shouldPassDescriptionToTemplateModelForReaderPage() {
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);
+        when(privatePostService.getPublicViewBySlug("hello-halo"))
+            .thenReturn(Mono.just(privatePostViewWithDescription("hello-halo", "自定义说明文字")));
+        when(templateNameResolver.resolveTemplateNameOrDefault(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("private-post")))
+            .thenReturn(Mono.just("private-post"));
+
+        ViewResolver descriptionCapturingResolver = (viewName, locale) -> Mono.just(
+            (View) (model, contentType, exchange) -> {
+                byte[] body = String.valueOf(model.get("description")).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.getResponse().getHeaders().set("Content-Type", "text/plain;charset=UTF-8");
+                org.springframework.core.io.buffer.DataBuffer buffer =
+                    exchange.getResponse().bufferFactory().wrap(body);
+                return exchange.getResponse().writeWith(Mono.just(buffer));
+            }
+        );
+        WebTestClient client = WebTestClient.bindToWebHandler(
+            org.springframework.web.reactive.function.server.RouterFunctions.toWebHandler(
+                new PrivatePostPageRouter(templateNameResolver, privatePostService).privatePostRouterFunction(),
+                org.springframework.web.reactive.function.server.HandlerStrategies.builder()
+                    .viewResolver(descriptionCapturingResolver).build()
+            )
+        ).build();
+
+        client.get()
+            .uri("/private-posts?slug=hello-halo")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().valueEquals("Cache-Control", "no-store")
+            .expectBody(String.class)
+            .value(body -> org.assertj.core.api.Assertions.assertThat(body).isEqualTo("自定义说明文字"));
+    }
+
+    @Test
+    void shouldReturnEmptyDescriptionInBundleDataResponseWhenNotSet() {
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);
+        when(privatePostService.getPublicViewBySlug("hello-halo"))
+            .thenReturn(Mono.just(privatePostView("hello-halo")));
+        WebTestClient client = bindClient(
+            new PrivatePostPageRouter(templateNameResolver, privatePostService)
+        );
+
+        client.get()
+            .uri("/private-posts/data?slug=hello-halo")
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody()
+            .jsonPath("$.description").isEqualTo("");
+    }
+
+    @Test
     void shouldReturnNoStoreForMissingPublicDataView() {
         PrivatePostService privatePostService = mock(PrivatePostService.class);
         TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);
@@ -111,6 +183,26 @@ class PrivatePostPageRouterTest {
     }
 
     private static PrivatePostView privatePostView(String slug) {
+        return privatePostViewWithDescription(slug, "");
+    }
+
+    private static PrivatePostView privatePostViewWithDescription(String slug, String description) {
+        PrivatePost.Bundle bundle = privateBundle(slug);
+        return new PrivatePostView(
+            "source-post",
+            "source-post",
+            slug,
+            "Hello Halo",
+            "公开摘要",
+            "2026-04-28T00:00:00Z",
+            description,
+            "/private-posts?slug=" + slug,
+            "/private-posts/data?slug=" + slug,
+            bundle
+        );
+    }
+
+    private static PrivatePost.Bundle privateBundle(String slug) {
         PrivatePost.Bundle bundle = new PrivatePost.Bundle();
         bundle.setVersion(3);
         bundle.setPayloadFormat("markdown");
@@ -139,17 +231,7 @@ class PrivatePostPageRouterTest {
         metadata.setTitle("Hello Halo");
         bundle.setMetadata(metadata);
 
-        return new PrivatePostView(
-            "source-post",
-            "source-post",
-            slug,
-            "Hello Halo",
-            "公开摘要",
-            "2026-04-28T00:00:00Z",
-            "/private-posts?slug=" + slug,
-            "/private-posts/data?slug=" + slug,
-            bundle
-        );
+        return bundle;
     }
 
     private static String repeatHex(String byteHex, int byteCount) {

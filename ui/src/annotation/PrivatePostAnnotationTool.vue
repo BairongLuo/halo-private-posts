@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
   fetchHaloPostHeadContent,
+  fetchHaloPostSnapshotContent,
   getHaloPostBundleAnnotation,
   getHaloPostByName,
   listHaloPosts,
@@ -25,10 +26,15 @@ import type {
 } from '@/types/private-post'
 import { encryptPrivatePost, parseBundleJson } from '@/utils/private-post-crypto'
 import { findEditorSaveButton } from './editor-dom'
+import { LatestContentCache } from './latest-content-cache'
 import {
   extractPostNameFromResponse,
   extractPostNameFromSaveUrl,
+  extractHeadSnapshotFromResponse,
+  extractReleaseSnapshotFromResponse,
   isPostContentSaveRequest,
+  isPostPublishRequest,
+  normalizeSaveRequestBodyText,
   parseContentBody,
   parseJson,
   parseMetadataPostBody,
@@ -36,9 +42,10 @@ import {
   resolvePendingSaveAction,
   shouldManageEncryptionOnSave,
   type PendingSaveAction,
+  extractPublishHeadSnapshotFromUrl,
 } from './save-request'
 
-type SaveAction = PendingSaveAction | 'metadata-sync'
+type SaveAction = PendingSaveAction
 type StatusTone = 'neutral' | 'valid' | 'invalid' | 'success'
 
 const props = defineProps<{
@@ -48,6 +55,7 @@ const props = defineProps<{
 
 const password = ref('')
 const showPassword = ref(false)
+const description = ref('')
 const bundleText = ref('')
 const encryptionEnabled = ref(false)
 const currentPostName = ref('')
@@ -71,6 +79,7 @@ let latestStandaloneSyncToken = 0
 let latestHandledStandaloneSyncToken = 0
 let lastInterceptedSaveAt = 0
 let lastHydratedBundlePostName = ''
+const latestContentCache = new LatestContentCache()
 
 let siteRecoveryPublicKey: SiteRecoveryPublicKey | null = null
 let siteRecoveryPublicKeyPromise: Promise<SiteRecoveryPublicKey | null> | null = null
@@ -408,6 +417,7 @@ function syncUiStateFromBundle(force: boolean): void {
 
   encryptionEnabled.value = hasBundle.value
   encryptionDirty.value = false
+  description.value = parsedBundle.value?.metadata?.description ?? ''
 }
 
 function handleEncryptionToggle(event: Event): void {
@@ -436,9 +446,10 @@ function handlePasswordInput(): void {
 }
 
 function updateEncryptionDirtyState(): void {
-  if (password.value.trim().length === 0 && encryptionEnabled.value === hasBundle.value) {
-    encryptionDirty.value = false
-  }
+  const savedDescription = parsedBundle.value?.metadata?.description?.trim() ?? ''
+  encryptionDirty.value = password.value.trim().length > 0
+    || encryptionEnabled.value !== hasBundle.value
+    || description.value.trim() !== savedDescription
 }
 
 function setActionMessage(tone: StatusTone, message: string): void {
@@ -520,6 +531,7 @@ async function resolveStandaloneSaveInput(): Promise<PreparedSaveInput | null> {
     } as Content,
     metadata: await resolveCurrentMetadata(postName),
     postNameHint: postName,
+    isPublishing: false,
   }
 }
 
@@ -548,12 +560,26 @@ function createEditorDraftSaveInterceptor(): () => void {
       }
 
       try {
+        if (prepared.result.commitBeforeSave) {
+          const committed = await commitPreparedDraftSave(prepared.result, null)
+          if (!committed) {
+            throw new Error('加密状态同步失败，已阻止发布')
+          }
+        }
+
         const response = await originalFetch(prepared.input, prepared.init)
         if (response.status >= 400) {
           throw new Error(`文章保存失败，接口返回 ${response.status}`)
         }
 
-        void commitPreparedDraftSave(prepared.result, await readFetchJsonBody(response))
+        if (!prepared.result.commitBeforeSave) {
+          const committed = commitPreparedDraftSave(prepared.result, await readFetchJsonBody(response))
+          if (prepared.result.isPublishing) {
+            await committed
+          } else {
+            void committed
+          }
+        }
         return response
       } catch (error) {
         setActionMessage('invalid', toMessage(error))
@@ -605,6 +631,15 @@ function createEditorDraftSaveInterceptor(): () => void {
 
         if (!prepared) {
           originalSend.call(this, body)
+          return
+        }
+
+        if (prepared.result.commitBeforeSave) {
+          const committed = await commitPreparedDraftSave(prepared.result, null)
+          if (!committed) {
+            throw new Error('加密状态同步失败，已阻止发布')
+          }
+          originalSend.call(this, prepared.body)
           return
         }
 
@@ -660,7 +695,11 @@ async function prepareFetchDraftSave(args: {
   init?: RequestInit
   result: PreparedDraftSaveResult
 } | null> {
-  const bodyText = await readFetchBodyText(args.input, args.init)
+  const bodyText = normalizeSaveRequestBodyText({
+    bodyText: await readFetchBodyText(args.input, args.init),
+    method: args.method,
+    url: args.url,
+  })
   if (bodyText === null) {
     return null
   }
@@ -703,12 +742,18 @@ async function prepareXhrDraftSave(args: {
   body?: Document | XMLHttpRequestBodyInit | null
   result: PreparedDraftSaveResult
 } | null> {
-  if (typeof args.body !== 'string') {
+  const bodyText = normalizeSaveRequestBodyText({
+    bodyText: typeof args.body === 'string' ? args.body : null,
+    method: args.method,
+    url: args.url,
+  })
+
+  if (bodyText === null) {
     return null
   }
 
   const result = await prepareDraftSaveRequest({
-    bodyText: args.body,
+    bodyText,
     method: args.method,
     url: args.url,
   })
@@ -753,12 +798,31 @@ async function resolveSaveInputFromRequest(args: {
   method: string
   url: string
 }): Promise<PreparedSaveInput | null> {
+  // 发布请求：PUT .../posts/{name}/publish（Halo api-client 用 PUT，不是 POST）
+  if (isPostPublishRequest(args.method, args.url)) {
+    const postNameHint = extractPostNameFromSaveUrl(args.url, 'PUT')
+      || currentPostName.value
+    if (!postNameHint) {
+      return null
+    }
+    return {
+      content: createEmptyContent(),
+      metadata: await resolveCurrentMetadata(postNameHint),
+      postNameHint,
+      snapshotNameHint: extractPublishHeadSnapshotFromUrl(args.url) || undefined,
+      isPublishing: true,
+    }
+  }
+
   const postRequest = parsePostRequestBody(args.bodyText)
   if (postRequest) {
+    const postNameHint = currentPostName.value || extractPostNameFromSaveUrl(args.url, args.method)
+    rememberLatestContentForPost(postNameHint, postRequest.content)
     return {
       content: postRequest.content,
       metadata: buildMetadataFromPost(postRequest.post),
-      postNameHint: currentPostName.value || extractPostNameFromSaveUrl(args.url, args.method),
+      postNameHint,
+      isPublishing: false,
     }
   }
 
@@ -770,6 +834,7 @@ async function resolveSaveInputFromRequest(args: {
       postNameHint: metadataPost.metadata.name
         || currentPostName.value
         || extractPostNameFromSaveUrl(args.url, args.method),
+      isPublishing: false,
     }
   }
 
@@ -786,11 +851,13 @@ async function resolveSaveInputFromRequest(args: {
   if (!postNameHint) {
     throw new Error('当前文章名称尚未解析完成，请稍后重试')
   }
+  rememberLatestContentForPost(postNameHint, content)
 
   return {
     content,
     metadata: await resolveCurrentMetadata(postNameHint),
     postNameHint,
+    isPublishing: false,
   }
 }
 
@@ -805,6 +872,7 @@ async function prepareManagedSaveResult(
   let action: SaveAction = 'none'
   let refreshPayloadFormat: string | undefined
   let refreshContent: string | undefined
+  let refreshSnapshotName: string | undefined
   let refreshNextPassword: string | undefined
 
   if (!encryptionEnabled.value) {
@@ -838,11 +906,13 @@ async function prepareManagedSaveResult(
     }, null, 2)
     action = 'refresh'
     refreshNextPassword = nextPassword || undefined
+
     if (hasContentPayload(input.content)) {
       const nextDraftContent = readDraftContent(input.content)
       refreshPayloadFormat = nextDraftContent.payload_format
       refreshContent = nextDraftContent.content
     }
+    refreshSnapshotName = input.snapshotNameHint
   } else {
     throw new Error('当前密文异常，请输入访问密码后重新保存')
   }
@@ -853,8 +923,11 @@ async function prepareManagedSaveResult(
     bundleText: nextBundleText,
     postNameHint: input.postNameHint,
     savedContent: nextSavedContent,
+    commitBeforeSave: input.isPublishing && action !== 'refresh',
+    isPublishing: input.isPublishing,
     refreshPayloadFormat,
     refreshContent,
+    refreshSnapshotName,
     refreshMetadata: action === 'refresh' ? input.metadata : undefined,
     refreshNextPassword,
   }
@@ -885,6 +958,7 @@ function buildMetadataFromPost(post: Post): BundleMetadata {
     slug: post.spec.slug,
     excerpt: post.spec.excerpt?.raw ?? '',
     publishedAt: post.spec.publishTime ?? '',
+    description: description.value.trim(),
   })
 }
 
@@ -958,6 +1032,7 @@ async function resolveCurrentMetadata(postName: string): Promise<BundleMetadata>
     slug,
     excerpt,
     publishedAt,
+    description: description.value.trim(),
   })
 }
 
@@ -967,18 +1042,36 @@ async function resolveContentForEncryption(input: PreparedSaveInput): Promise<Co
   }
 
   if (!input.postNameHint) {
-    throw new Error('当前文章尚未保存，请先保存正文后再启用加密')
+    throw new Error('当前文章尚未保存，请先保存文章后再启用加密')
+  }
+
+  if (input.snapshotNameHint) {
+    return fetchContentSnapshotForEncryption(input.postNameHint, input.snapshotNameHint)
   }
 
   try {
-    const savedContent = await fetchHaloPostHeadContent(input.postNameHint)
-    return {
-      raw: savedContent.raw ?? '',
-      content: savedContent.content ?? '',
-      rawType: savedContent.rawType ?? '',
-    } as Content
+    const headContent = await fetchHaloPostHeadContent(input.postNameHint)
+    if (!headContent.raw?.trim() && !headContent.content?.trim()) {
+      throw new Error('no content')
+    }
+    return toContentPayload(headContent)
   } catch {
-    throw new Error('当前文章还没有已保存正文，请先保存正文后再启用加密')
+    throw new Error('当前文章还没有已保存的正文，请先保存正文后再启用加密')
+  }
+}
+
+async function fetchContentSnapshotForEncryption(
+  postName: string,
+  snapshotName: string
+): Promise<Content> {
+  try {
+    const content = await fetchHaloPostSnapshotContent(postName, snapshotName)
+    if (!content.raw?.trim() && !content.content?.trim()) {
+      throw new Error('empty content')
+    }
+    return toContentPayload(content)
+  } catch {
+    throw new Error('当前无法读取待发布草稿正文，请重新保存正文后再发布')
   }
 }
 
@@ -987,6 +1080,7 @@ function buildBundleMetadata(args: {
   slug: string
   excerpt?: string
   publishedAt?: string
+  description?: string
 }): BundleMetadata {
   const normalizedTitle = args.title.trim()
   if (!normalizedTitle) {
@@ -1000,12 +1094,14 @@ function buildBundleMetadata(args: {
 
   const normalizedExcerpt = args.excerpt?.trim() ?? ''
   const normalizedPublishedAt = args.publishedAt?.trim() ?? ''
+  const normalizedDescription = args.description?.trim() ?? ''
 
   return {
     title: normalizedTitle,
     slug: normalizedSlug,
     ...(normalizedExcerpt ? { excerpt: normalizedExcerpt } : {}),
     ...(normalizedPublishedAt ? { published_at: normalizedPublishedAt } : {}),
+    ...(normalizedDescription ? { description: normalizedDescription } : {}),
   }
 }
 
@@ -1046,27 +1142,20 @@ function toHaloPostContent(content: Content): HaloPostContent {
   }
 }
 
+function toContentPayload(content: HaloPostContent): Content {
+  return {
+    raw: content.raw ?? '',
+    content: content.content ?? '',
+    rawType: content.rawType ?? '',
+  } as Content
+}
+
 function hasContentPayload(content: Content): boolean {
   return Boolean(content.raw?.trim() || content.content?.trim())
 }
 
-function hasDraftContentChanged(saved: HaloPostContent, next: Content): boolean {
-  const savedRaw = saved.raw ?? ''
-  const nextRaw = next.raw ?? ''
-  if (savedRaw !== nextRaw) {
-    return true
-  }
-
-  const savedContentValue = saved.content ?? ''
-  if (!savedRaw && savedContentValue !== (next.content ?? '')) {
-    return true
-  }
-
-  return normalizeRawType(saved.rawType) !== normalizeRawType(next.rawType)
-}
-
-function normalizeRawType(value?: string): string {
-  return value?.trim().toLowerCase() ?? ''
+function rememberLatestContentForPost(postName: string, content: Content): void {
+  latestContentCache.remember(postName, content)
 }
 
 async function ensureSiteRecoveryPublicKeyLoaded(): Promise<SiteRecoveryPublicKey | null> {
@@ -1094,7 +1183,7 @@ async function ensureSiteRecoveryPublicKeyLoaded(): Promise<SiteRecoveryPublicKe
 async function commitPreparedDraftSave(
   result: PreparedDraftSaveResult,
   responseData: unknown
-): Promise<void> {
+): Promise<boolean> {
   const resolvedPostName = extractPostNameFromResponse(responseData)
     || result.postNameHint
     || currentPostName.value
@@ -1103,21 +1192,35 @@ async function commitPreparedDraftSave(
     currentPostName.value = resolvedPostName
   }
 
+  if (result.action === 'refresh' && !result.refreshSnapshotName) {
+    result.refreshSnapshotName = extractReleaseSnapshotFromResponse(responseData)
+      || extractHeadSnapshotFromResponse(responseData)
+      || undefined
+  }
+
   if (requiresBundlePersistence(result.action)) {
     if (!resolvedPostName) {
       setActionMessage(
         'invalid',
         '文章正文已保存，但未能解析文章名称，请刷新编辑页后重试加密状态同步。'
       )
-      return
+      return false
     }
 
     const persistSignature = [
       resolvedPostName,
       result.action,
       result.bundleText.trim(),
+      result.refreshPayloadFormat ?? '',
+      result.refreshContent ?? '',
+      result.refreshSnapshotName ?? '',
+      JSON.stringify(result.refreshMetadata ?? null),
+      result.refreshNextPassword ?? '',
     ].join('::')
+    const canDedupePersistence = result.action !== 'refresh'
     if (
+      canDedupePersistence
+      &&
       persistSignature === lastPersistedSignature
       && Date.now() - lastPersistedAt < 1500
     ) {
@@ -1130,17 +1233,24 @@ async function commitPreparedDraftSave(
         showPassword.value = false
       }
       setActionMessage(resultTone(result.action), resultMessage(result.action))
-      return
+      return true
     }
 
-    lastPersistedSignature = persistSignature
-    lastPersistedAt = Date.now()
+    if (canDedupePersistence) {
+      lastPersistedSignature = persistSignature
+      lastPersistedAt = Date.now()
+    } else {
+      lastPersistedSignature = ''
+      lastPersistedAt = 0
+    }
+
     try {
       if (result.action === 'refresh') {
         const refreshedBundle = await refreshPrivatePostBundleWithSiteRecovery({
           postName: resolvedPostName,
           payloadFormat: result.refreshPayloadFormat,
           content: result.refreshContent,
+          snapshotName: result.refreshSnapshotName,
           metadata: result.refreshMetadata,
           nextPassword: result.refreshNextPassword,
         })
@@ -1152,7 +1262,11 @@ async function commitPreparedDraftSave(
     } catch (error) {
       lastPersistedSignature = ''
       lastPersistedAt = 0
-      setActionMessage('invalid', buildBundlePersistenceFailureMessage(result.action, error))
+      setActionMessage(
+        'invalid',
+        buildBundlePersistenceFailureMessage(result.action, error, result.commitBeforeSave)
+      )
+      return false
     }
   }
 
@@ -1166,13 +1280,13 @@ async function commitPreparedDraftSave(
   }
 
   setActionMessage(resultTone(result.action), resultMessage(result.action))
+  return true
 }
 
 function requiresBundlePersistence(action: SaveAction): boolean {
   return action === 'lock'
     || action === 'unlock'
     || action === 'refresh'
-    || action === 'metadata-sync'
 }
 
 async function waitForBundlePersistence(
@@ -1186,9 +1300,7 @@ async function waitForBundlePersistence(
   }
 
   if (action === 'refresh') {
-    await waitForPrivatePostSync({
-      postName,
-    })
+    await waitForPrivatePostSync({ postName })
     return
   }
 
@@ -1216,8 +1328,16 @@ function parseExpectedBundle(bundleText: string): EncryptedPrivatePostBundle | n
   }
 }
 
-function buildBundlePersistenceFailureMessage(action: SaveAction, error: unknown): string {
+function buildBundlePersistenceFailureMessage(
+  action: SaveAction,
+  error: unknown,
+  blockedOriginalSave: boolean
+): string {
   const actionLabel = action === 'unlock' ? '取消加锁' : '加锁状态'
+  if (blockedOriginalSave) {
+    return `已阻止发布，${actionLabel}同步失败：${toMessage(error)}`
+  }
+
   return `文章正文已保存，但${actionLabel}同步失败：${toMessage(error)}`
 }
 
@@ -1248,10 +1368,6 @@ function resultMessage(action: SaveAction): string {
 
   if (action === 'refresh') {
     return '已保存，当前加密内容已更新。'
-  }
-
-  if (action === 'metadata-sync') {
-    return '已保存，当前加密文章的公开元数据已同步。'
   }
 
   if (encryptionEnabled.value) {
@@ -1473,6 +1589,8 @@ interface PreparedSaveInput {
   content: Content
   metadata: BundleMetadata
   postNameHint: string
+  snapshotNameHint?: string
+  isPublishing: boolean
 }
 
 interface PreparedDraftSaveResult {
@@ -1481,8 +1599,11 @@ interface PreparedDraftSaveResult {
   bundleText: string
   postNameHint: string
   savedContent: HaloPostContent
+  commitBeforeSave: boolean
+  isPublishing: boolean
   refreshPayloadFormat?: string
   refreshContent?: string
+  refreshSnapshotName?: string
   refreshMetadata?: BundleMetadata
   refreshNextPassword?: string
 }
@@ -1514,6 +1635,17 @@ interface PreparedDraftSaveResult {
       </label>
 
       <div v-if="encryptionEnabled" class="hpp-annotation-password-card">
+        <label class="hpp-annotation-field">
+          <span>锁定说明（可选）</span>
+          <textarea
+            :value="description"
+            class="hpp-annotation-input hpp-annotation-textarea"
+            placeholder="显示在密码输入框上方的自定义说明文字，留空则不显示"
+            rows="2"
+            @input="description = ($event.target as HTMLTextAreaElement).value; updateEncryptionDirtyState()"
+          />
+        </label>
+
         <div class="hpp-annotation-password-row">
           <label class="hpp-annotation-field">
             <span>访问密码</span>
@@ -1683,6 +1815,13 @@ interface PreparedDraftSaveResult {
 .hpp-annotation-input:focus {
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+}
+
+.hpp-annotation-textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+  line-height: 1.5;
 }
 
 @media (max-width: 720px) {

@@ -129,5 +129,7 @@ public class PrivatePost extends AbstractExtension {
 
         @JsonProperty("published_at")
         private String publishedAt;
+
+        private String description;
     }
 }

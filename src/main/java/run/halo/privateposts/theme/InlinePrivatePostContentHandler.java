@@ -49,11 +49,17 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
         String slug = post.getSpec().getSlug();
         String encodedSlug = UriUtils.encode(slug, "UTF-8");
         String excerpt = readExcerpt(post, bundle);
+        String description = readDescription(bundle);
         String postName = post.getMetadata() == null ? "" : post.getMetadata().getName();
         String safeExcerpt = StringUtils.hasText(excerpt)
             ? """
                 <p class="hpp-excerpt">%s</p>
                 """.formatted(escape(excerpt))
+            : "";
+        String safeDescription = StringUtils.hasText(description)
+            ? """
+                    <p class="hpp-description" data-hpp-description>%s</p>
+                """.formatted(escape(description))
             : "";
 
         return """
@@ -69,6 +75,7 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
                   <div class="hpp-lock" data-hpp-lock-panel>
                     %s
                     <p class="hpp-status" data-hpp-status data-status="neutral" hidden></p>
+                    %s
                     <form class="hpp-form" data-hpp-form>
                       <label class="hpp-label" for="hpp-password-%s">
                         访问密码
@@ -100,6 +107,7 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
             escape("/private-posts/data?slug=" + encodedSlug),
             IDLE_TIMEOUT_MS,
             safeExcerpt,
+            safeDescription,
             escape(postName),
             escape(postName)
         );
@@ -118,6 +126,15 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
 
         if (bundle != null && bundle.getMetadata() != null && StringUtils.hasText(bundle.getMetadata().getExcerpt())) {
             return bundle.getMetadata().getExcerpt();
+        }
+
+        return "";
+    }
+
+    private static String readDescription(PrivatePost.Bundle bundle) {
+        if (bundle != null && bundle.getMetadata() != null
+            && StringUtils.hasText(bundle.getMetadata().getDescription())) {
+            return bundle.getMetadata().getDescription();
         }
 
         return "";

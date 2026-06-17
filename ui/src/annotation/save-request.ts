@@ -47,6 +47,11 @@ export function shouldManageEncryptionOnSave(args: {
     return false
   }
 
+  // 发布走 PUT .../posts/{name}/publish（Halo api-client 实现为 PUT）。
+  if (isPostPublishPath(pathname)) {
+    return true
+  }
+
   if (isPostContentSavePath(pathname)) {
     return true
   }
@@ -66,6 +71,44 @@ export function shouldManageEncryptionOnSave(args: {
         && segments[3] === 'posts'
       )
     )
+}
+
+export function isPostPublishRequest(method: string, url: string): boolean {
+  return method.toUpperCase() === 'PUT' && isPostPublishPath(parseRequestPathname(url))
+}
+
+export function extractPublishHeadSnapshotFromUrl(url: string): string {
+  if (!isPostPublishPath(parseRequestPathname(url))) {
+    return ''
+  }
+
+  try {
+    return new URL(url, currentOrigin()).searchParams.get('headSnapshot')?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function normalizeSaveRequestBodyText(args: {
+  bodyText: string | null
+  method: string
+  url: string
+}): string | null {
+  if (args.bodyText !== null) {
+    return args.bodyText
+  }
+
+  return isPostPublishRequest(args.method, args.url) ? '' : null
+}
+
+export function isPostPublishPath(pathname: string): boolean {
+  const segments = pathname.split('/').filter(Boolean)
+  return segments.length === 6
+    && segments[0] === 'apis'
+    && segments[1] === 'api.console.halo.run'
+    && segments[2] === 'v1alpha1'
+    && segments[3] === 'posts'
+    && segments[5] === 'publish'
 }
 
 export function isPostContentSaveRequest(method: string, url: string): boolean {
@@ -156,6 +199,10 @@ export function extractPostNameFromSaveUrl(url: string, method: string): string 
     return decodeURIComponent(segments[4] ?? '')
   }
 
+  if (isPostPublishPath(pathname)) {
+    return decodeURIComponent(segments[4] ?? '')
+  }
+
   return ''
 }
 
@@ -166,6 +213,14 @@ export function extractPostNameFromResponse(responseData: unknown): string {
 
   const metadata = (responseData as { metadata?: { name?: unknown } }).metadata
   return typeof metadata?.name === 'string' ? metadata.name : ''
+}
+
+export function extractReleaseSnapshotFromResponse(responseData: unknown): string {
+  return extractPostSpecString(responseData, 'releaseSnapshot')
+}
+
+export function extractHeadSnapshotFromResponse(responseData: unknown): string {
+  return extractPostSpecString(responseData, 'headSnapshot')
 }
 
 export function parseRequestPathname(url: string): string {
@@ -194,4 +249,14 @@ function currentOrigin(): string {
   }
 
   return 'http://localhost'
+}
+
+function extractPostSpecString(responseData: unknown, field: 'headSnapshot' | 'releaseSnapshot'): string {
+  if (!responseData || typeof responseData !== 'object') {
+    return ''
+  }
+
+  const spec = (responseData as { spec?: Record<string, unknown> }).spec
+  const value = spec?.[field]
+  return typeof value === 'string' ? value.trim() : ''
 }

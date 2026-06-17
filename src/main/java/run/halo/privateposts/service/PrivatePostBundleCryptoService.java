@@ -144,6 +144,7 @@ public class PrivatePostBundleCryptoService {
         copied.setTitle(source.getTitle());
         copied.setExcerpt(source.getExcerpt());
         copied.setPublishedAt(source.getPublishedAt());
+        copied.setDescription(source.getDescription());
         return copied;
     }
 

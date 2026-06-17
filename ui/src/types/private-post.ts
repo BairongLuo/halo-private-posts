@@ -3,6 +3,7 @@ export interface BundleMetadata {
   title: string
   excerpt?: string
   published_at?: string
+  description?: string
 }
 
 export interface PasswordSlot {
@@ -73,6 +74,7 @@ export interface PrivatePostView {
   title: string
   excerpt: string
   publishedAt: string
+  description: string
   readerUrl: string
   bundleUrl: string
   bundle: EncryptedPrivatePostBundle
@@ -95,6 +97,7 @@ export interface SiteRecoveryRefreshRequest {
   postName: string
   payloadFormat?: string
   content?: string
+  snapshotName?: string
   metadata?: BundleMetadata
   nextPassword?: string
 }

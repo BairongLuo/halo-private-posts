@@ -194,6 +194,7 @@ function normalizeBundleMetadata(metadata: unknown): BundleMetadata {
     title: readNonEmptyString(metadata.title, 'metadata.title'),
     excerpt: readOptionalString(metadata.excerpt),
     published_at: readOptionalString(metadata.published_at),
+    description: readOptionalString(metadata.description),
   }
 }
 

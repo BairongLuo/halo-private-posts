@@ -6,6 +6,7 @@ export interface HaloPostSummary {
   title: string
   slug: string
   excerpt: string
+  headSnapshot?: string
   publishTime?: string
   permalink?: string
   visible?: string
@@ -80,6 +81,14 @@ export async function fetchHaloPostHeadContent(name: string): Promise<HaloPostCo
   return mapContentWrapper(data)
 }
 
+export async function fetchHaloPostSnapshotContent(
+  name: string,
+  snapshotName: string
+): Promise<HaloPostContent> {
+  const { data } = await consoleApiClient.content.post.fetchPostContent({ name, snapshotName })
+  return mapContentWrapper(data)
+}
+
 export async function persistPrivatePostBundleAnnotation(
   name: string,
   bundleText: string
@@ -140,6 +149,7 @@ function mapPostToSummary(post: Post): HaloPostSummary {
     title: post.spec.title,
     slug: post.spec.slug,
     excerpt: post.spec.excerpt?.raw ?? post.status?.excerpt ?? '',
+    headSnapshot: post.spec.headSnapshot ?? undefined,
     publishTime: post.spec.publishTime ?? undefined,
     permalink: post.status?.permalink ?? undefined,
     visible: post.spec.visible,

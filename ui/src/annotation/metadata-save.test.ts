@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  extractPublishHeadSnapshotFromUrl,
+  extractHeadSnapshotFromResponse,
   extractPostNameFromResponse,
   extractPostNameFromSaveUrl,
+  extractReleaseSnapshotFromResponse,
+  isPostPublishRequest,
+  normalizeSaveRequestBodyText,
   parseContentBody,
   parseMetadataPostBody,
   shouldManageEncryptionOnSave,
@@ -91,6 +96,18 @@ describe('metadata save encryption flow', () => {
     })).toBe('demo-post')
   })
 
+  it('extracts publish snapshots from save responses', () => {
+    const response = {
+      spec: {
+        headSnapshot: 'draft-snapshot',
+        releaseSnapshot: 'released-snapshot',
+      },
+    }
+
+    expect(extractReleaseSnapshotFromResponse(response)).toBe('released-snapshot')
+    expect(extractHeadSnapshotFromResponse(response)).toBe('draft-snapshot')
+  })
+
   it('normalizes content save payloads', () => {
     expect(parseContentBody(JSON.stringify({
       raw: '# Demo',
@@ -100,5 +117,97 @@ describe('metadata save encryption flow', () => {
       content: '',
       rawType: 'markdown',
     })
+  })
+})
+
+describe('publish request detection', () => {
+  it('recognizes a publish request by URL and method (PUT)', () => {
+    expect(isPostPublishRequest(
+      'PUT',
+      '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish'
+    )).toBe(true)
+  })
+
+  it('rejects publish URL with wrong method (POST)', () => {
+    expect(isPostPublishRequest(
+      'POST',
+      '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish'
+    )).toBe(false)
+  })
+
+  it('rejects non-publish PUT URLs', () => {
+    expect(isPostPublishRequest(
+      'PUT',
+      '/apis/api.console.halo.run/v1alpha1/posts/demo-post/content'
+    )).toBe(false)
+    expect(isPostPublishRequest(
+      'PUT',
+      '/apis/api.console.halo.run/v1alpha1/posts/demo-post'
+    )).toBe(false)
+  })
+
+  it('manages encryption on publish when already encrypted', () => {
+    expect(shouldManageEncryptionOnSave({
+      method: 'PUT',
+      url: '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish',
+      encryptionEnabled: true,
+      hasBundle: true,
+      password: '',
+    })).toBe(true)
+  })
+
+  it('manages encryption on publish for first-time lock', () => {
+    expect(shouldManageEncryptionOnSave({
+      method: 'PUT',
+      url: '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish',
+      encryptionEnabled: true,
+      hasBundle: false,
+      password: 'secret',
+    })).toBe(true)
+  })
+
+  it('skips encryption management on publish when encryption is off and no bundle exists', () => {
+    expect(shouldManageEncryptionOnSave({
+      method: 'PUT',
+      url: '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish',
+      encryptionEnabled: false,
+      hasBundle: false,
+      password: '',
+    })).toBe(false)
+  })
+
+  it('extracts the post name from a publish URL', () => {
+    expect(extractPostNameFromSaveUrl(
+      '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish',
+      'PUT'
+    )).toBe('demo-post')
+  })
+
+  it('extracts the head snapshot from a publish URL', () => {
+    expect(extractPublishHeadSnapshotFromUrl(
+      '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish?headSnapshot=snapshot-2026'
+    )).toBe('snapshot-2026')
+  })
+
+  it('ignores head snapshot parameters on non-publish URLs', () => {
+    expect(extractPublishHeadSnapshotFromUrl(
+      '/apis/api.console.halo.run/v1alpha1/posts/demo-post/content?headSnapshot=snapshot-2026'
+    )).toBe('')
+  })
+
+  it('allows bodyless publish requests to enter the encryption flow', () => {
+    expect(normalizeSaveRequestBodyText({
+      bodyText: null,
+      method: 'PUT',
+      url: '/apis/api.console.halo.run/v1alpha1/posts/demo-post/publish',
+    })).toBe('')
+  })
+
+  it('keeps bodyless non-publish requests out of the encryption flow', () => {
+    expect(normalizeSaveRequestBodyText({
+      bodyText: null,
+      method: 'PUT',
+      url: '/apis/api.console.halo.run/v1alpha1/posts/demo-post/content',
+    })).toBeNull()
   })
 })

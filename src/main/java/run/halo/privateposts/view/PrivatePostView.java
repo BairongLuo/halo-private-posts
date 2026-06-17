@@ -12,6 +12,7 @@ public record PrivatePostView(
     String title,
     String excerpt,
     String publishedAt,
+    String description,
     String readerUrl,
     String bundleUrl,
     PrivatePost.Bundle bundle
@@ -26,6 +27,7 @@ public record PrivatePostView(
             privatePost.getSpec().getTitle(),
             nullToEmpty(privatePost.getSpec().getExcerpt()),
             nullToEmpty(privatePost.getSpec().getPublishedAt()),
+            readBundleDescription(privatePost.getSpec().getBundle()),
             "/private-posts?slug=" + encodedSlug,
             "/private-posts/data?slug=" + encodedSlug,
             privatePost.getSpec().getBundle()
@@ -43,6 +45,7 @@ public record PrivatePostView(
             post.getSpec() == null ? readBundleTitle(bundle) : nullToEmpty(post.getSpec().getTitle()),
             readExcerpt(post, bundle),
             readPublishedAt(post, bundle),
+            readBundleDescription(bundle),
             "/private-posts?slug=" + encodedSlug,
             "/private-posts/data?slug=" + encodedSlug,
             bundle
@@ -91,6 +94,13 @@ public record PrivatePostView(
     private static String readBundleTitle(PrivatePost.Bundle bundle) {
         if (bundle != null && bundle.getMetadata() != null) {
             return nullToEmpty(bundle.getMetadata().getTitle());
+        }
+        return "";
+    }
+
+    private static String readBundleDescription(PrivatePost.Bundle bundle) {
+        if (bundle != null && bundle.getMetadata() != null) {
+            return nullToEmpty(bundle.getMetadata().getDescription());
         }
         return "";
     }

@@ -100,6 +100,88 @@ describe('reader', () => {
     })
   })
 
+  it('refreshes the lock description from the no-store bundle endpoint on mount', async () => {
+    document.body.innerHTML = `
+      <div
+        data-halo-private-post-reader
+        data-bundle-url="/private-posts/data?slug=demo-post"
+      >
+        <div data-hpp-lock-panel>
+          <p data-hpp-status data-status="neutral">初始状态</p>
+          <p class="hpp-description" data-hpp-description>旧说明</p>
+          <form data-hpp-form>
+            <input data-hpp-password />
+            <button data-hpp-submit type="submit">解锁</button>
+          </form>
+        </div>
+        <div data-hpp-content hidden></div>
+      </div>
+    `
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        description: '新说明',
+        bundle: {
+          version: 3,
+          metadata: {
+            slug: 'demo-post',
+            title: 'Demo Post',
+            description: '新说明',
+          },
+        },
+      }),
+    } as Response)
+
+    window.haloPrivatePostsMountReaders?.()
+
+    await vi.waitFor(() => {
+      const description = document.querySelector<HTMLElement>('[data-hpp-description]')
+      expect(description?.textContent).toBe('新说明')
+    })
+  })
+
+  it('creates the lock description when cached markup does not have one yet', async () => {
+    document.body.innerHTML = `
+      <div
+        data-halo-private-post-reader
+        data-bundle-url="/private-posts/data?slug=demo-post"
+      >
+        <div data-hpp-lock-panel>
+          <p data-hpp-status data-status="neutral">初始状态</p>
+          <form data-hpp-form>
+            <input data-hpp-password />
+            <button data-hpp-submit type="submit">解锁</button>
+          </form>
+        </div>
+        <div data-hpp-content hidden></div>
+      </div>
+    `
+
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        description: '后来新增的说明',
+        bundle: {
+          version: 3,
+          metadata: {
+            slug: 'demo-post',
+            title: 'Demo Post',
+          },
+        },
+      }),
+    } as Response)
+
+    window.haloPrivatePostsMountReaders?.()
+
+    await vi.waitFor(() => {
+      const description = document.querySelector<HTMLElement>('[data-hpp-description]')
+      const form = document.querySelector<HTMLElement>('[data-hpp-form]')
+      expect(description?.textContent).toBe('后来新增的说明')
+      expect(description?.nextElementSibling).toBe(form)
+    })
+  })
+
   it('uses the themed inline host and restores the original lock UI after relock', async () => {
     document.body.innerHTML = `
       <div class="content">

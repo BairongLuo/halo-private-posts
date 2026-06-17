@@ -497,6 +497,125 @@ class PrivatePostConsoleRouterTest {
     }
 
     @Test
+    void shouldRefreshBundleUsingDraftSnapshotWhenRequestDoesNotCarryContent() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePost("demo-post");
+        sourcePost.getSpec().setHeadSnapshot("draft-snapshot");
+        PrivatePost.Bundle refreshedBundle = privatePost("demo-post").getSpec().getBundle();
+        refreshedBundle.getMetadata().setTitle("Updated From Draft Snapshot");
+        ContentWrapper draftContent = ContentWrapper.builder()
+            .content("<p>draft markdown body</p>")
+            .raw("# draft markdown body")
+            .rawType("markdown")
+            .build();
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        when(siteRecoveryKeyService.unwrap(any(byte[].class))).thenReturn(Mono.just(sampleContentKey()));
+        when(postContentService.getSpecifiedContent("demo-post", "draft-snapshot")).thenReturn(Mono.just(draftContent));
+        when(privatePostBundleCryptoService.reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            eq("markdown"),
+            eq("# draft markdown body"),
+            any(PrivatePost.BundleMetadata.class)
+        )).thenReturn(refreshedBundle);
+        when(extensionClient.update(any(Post.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(privatePostService.upsert(any(PrivatePost.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostBundleCryptoService,
+            privatePostService,
+            postContentService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/refresh-bundle")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "metadata", Map.of(
+                    "slug", "demo-post-slug",
+                    "title", "Updated From Draft Snapshot"
+                )
+            ))
+            .exchange()
+            .expectStatus().isOk()
+            .expectBody()
+            .jsonPath("$.bundle.metadata.title").isEqualTo("Updated From Draft Snapshot");
+
+        verify(postContentService).getSpecifiedContent("demo-post", "draft-snapshot");
+        verify(privatePostBundleCryptoService).reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            eq("markdown"),
+            eq("# draft markdown body"),
+            any(PrivatePost.BundleMetadata.class)
+        );
+    }
+
+    @Test
+    void shouldRefreshBundleUsingRequestSnapshotWhenRequestDoesNotCarryContent() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePost("demo-post");
+        sourcePost.getSpec().setHeadSnapshot("server-draft-snapshot");
+        PrivatePost.Bundle refreshedBundle = privatePost("demo-post").getSpec().getBundle();
+        ContentWrapper draftContent = ContentWrapper.builder()
+            .content("<p>request snapshot body</p>")
+            .raw("# request snapshot body")
+            .rawType("markdown")
+            .build();
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        when(siteRecoveryKeyService.unwrap(any(byte[].class))).thenReturn(Mono.just(sampleContentKey()));
+        when(postContentService.getSpecifiedContent("demo-post", "request-snapshot")).thenReturn(Mono.just(draftContent));
+        when(privatePostBundleCryptoService.reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            eq("markdown"),
+            eq("# request snapshot body"),
+            any(PrivatePost.BundleMetadata.class)
+        )).thenReturn(refreshedBundle);
+        when(extensionClient.update(any(Post.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(privatePostService.upsert(any(PrivatePost.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostBundleCryptoService,
+            privatePostService,
+            postContentService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/refresh-bundle")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "snapshotName", "request-snapshot",
+                "metadata", Map.of(
+                    "slug", "demo-post-slug",
+                    "title", "Updated From Request Snapshot"
+                )
+            ))
+            .exchange()
+            .expectStatus().isOk();
+
+        verify(postContentService).getSpecifiedContent("demo-post", "request-snapshot");
+    }
+
+    @Test
     void shouldRefreshBundleUsingSavedHeadContentWhenRequestDoesNotCarryContent() throws Exception {
         SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
         PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
@@ -507,6 +626,7 @@ class PrivatePostConsoleRouterTest {
         Post sourcePost = sourcePost("demo-post");
         PrivatePost.Bundle refreshedBundle = privatePost("demo-post").getSpec().getBundle();
         refreshedBundle.getMetadata().setTitle("Updated From Metadata Save");
+        refreshedBundle.getMetadata().setDescription("请输入访问口令继续阅读");
         ContentWrapper headContent = ContentWrapper.builder()
             .content("<p>saved markdown body</p>")
             .raw("# saved markdown body")
@@ -541,21 +661,73 @@ class PrivatePostConsoleRouterTest {
                 "postName", "demo-post",
                 "metadata", Map.of(
                     "slug", "demo-post-slug",
-                    "title", "Updated From Metadata Save"
+                    "title", "Updated From Metadata Save",
+                    "description", "请输入访问口令继续阅读"
                 )
             ))
             .exchange()
             .expectStatus().isOk()
             .expectBody()
             .jsonPath("$.message").isEqualTo("私密正文密文已按最新正文同步更新")
-            .jsonPath("$.bundle.metadata.title").isEqualTo("Updated From Metadata Save");
+            .jsonPath("$.bundle.metadata.title").isEqualTo("Updated From Metadata Save")
+            .jsonPath("$.bundle.metadata.description").isEqualTo("请输入访问口令继续阅读");
 
         verify(postContentService).getHeadContent("demo-post");
+        org.mockito.ArgumentCaptor<PrivatePost.BundleMetadata> metadataCaptor =
+            org.mockito.ArgumentCaptor.forClass(PrivatePost.BundleMetadata.class);
         verify(privatePostBundleCryptoService).reencryptWithContentKey(
             any(PrivatePost.Bundle.class),
             any(byte[].class),
             eq("markdown"),
             eq("# saved markdown body"),
+            metadataCaptor.capture()
+        );
+        org.assertj.core.api.Assertions.assertThat(metadataCaptor.getValue().getDescription())
+            .isEqualTo("请输入访问口令继续阅读");
+    }
+
+    @Test
+    void shouldRejectRefreshWhenPostHasNoSavedContent() throws Exception {
+        SiteRecoveryKeyService siteRecoveryKeyService = mock(SiteRecoveryKeyService.class);
+        PasswordSlotCryptoService passwordSlotCryptoService = mock(PasswordSlotCryptoService.class);
+        PrivatePostBundleCryptoService privatePostBundleCryptoService = mock(PrivatePostBundleCryptoService.class);
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        PostContentService postContentService = mock(PostContentService.class);
+        ReactiveExtensionClient extensionClient = mock(ReactiveExtensionClient.class);
+        Post sourcePost = sourcePost("demo-post");
+
+        when(extensionClient.fetch(Post.class, "demo-post")).thenReturn(Mono.just(sourcePost));
+        when(siteRecoveryKeyService.unwrap(any(byte[].class))).thenReturn(Mono.just(sampleContentKey()));
+        when(postContentService.getHeadContent("demo-post")).thenReturn(Mono.empty());
+
+        WebTestClient client = bindClient(newRouter(
+            siteRecoveryKeyService,
+            passwordSlotCryptoService,
+            privatePostBundleCryptoService,
+            privatePostService,
+            postContentService,
+            extensionClient
+        ), authenticatedUser("editor"));
+
+        client.post()
+            .uri("/private-posts/refresh-bundle")
+            .bodyValue(Map.of(
+                "postName", "demo-post",
+                "metadata", Map.of(
+                    "slug", "demo-post-slug",
+                    "title", "Updated From Metadata Save"
+                )
+            ))
+            .exchange()
+            .expectStatus().isBadRequest()
+            .expectBody()
+            .jsonPath("$.message").isEqualTo("当前无法读取已保存正文，请刷新编辑页后重试");
+
+        verify(privatePostBundleCryptoService, org.mockito.Mockito.never()).reencryptWithContentKey(
+            any(PrivatePost.Bundle.class),
+            any(byte[].class),
+            any(),
+            any(),
             any(PrivatePost.BundleMetadata.class)
         );
     }

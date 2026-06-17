@@ -31,7 +31,7 @@ class InlinePrivatePostContentHandlerTest {
         ReactivePostContentHandler.PostContentContext context = contextFor(
             post("hello-halo", Map.of(
                 PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
-                bundleJson("hello-halo-slug", "Hello Halo", "公开摘要")
+                bundleJson("hello-halo-slug", "Hello Halo", "公开摘要", "请输入访问口令继续阅读")
             )),
             "<p>original content</p>"
         );
@@ -41,9 +41,27 @@ class InlinePrivatePostContentHandlerTest {
         assertThat(result.getContent()).contains("data-halo-private-post-reader=\"true\"");
         assertThat(result.getContent()).contains("/private-posts/data?slug=hello-halo-slug");
         assertThat(result.getContent()).contains("公开摘要");
+        assertThat(result.getContent()).contains("请输入访问口令继续阅读");
         assertThat(result.getContent()).contains("data-hpp-status data-status=\"neutral\" hidden");
         assertThat(result.getContent()).contains("autocomplete=\"off\"");
         assertThat(result.getContent()).doesNotContain("独立阅读页");
+    }
+
+    @Test
+    void handleShouldEscapeDescriptionFromBundleMetadata() {
+        InlinePrivatePostContentHandler handler = new InlinePrivatePostContentHandler();
+        ReactivePostContentHandler.PostContentContext context = contextFor(
+            post("hello-halo", Map.of(
+                PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
+                bundleJson("hello-halo-slug", "Hello Halo", "", "<b>口令</b>")
+            )),
+            "<p>original content</p>"
+        );
+
+        ReactivePostContentHandler.PostContentContext result = handler.handle(context).block();
+
+        assertThat(result.getContent()).contains("&lt;b&gt;口令&lt;/b&gt;");
+        assertThat(result.getContent()).doesNotContain("<b>口令</b>");
     }
 
     private static ReactivePostContentHandler.PostContentContext contextFor(Post post, String content) {
@@ -71,7 +89,7 @@ class InlinePrivatePostContentHandlerTest {
         return post;
     }
 
-    private static String bundleJson(String slug, String title, String excerpt) {
+    private static String bundleJson(String slug, String title, String excerpt, String description) {
         return """
             {"version":3,"payload_format":"markdown","cipher":"aes-256-gcm","kdf":"envelope",
             "data_iv":"00112233445566778899aabb",
@@ -82,8 +100,8 @@ class InlinePrivatePostContentHandlerTest {
             "auth_tag":"00112233445566778899aabbccddeeff"},
             "site_recovery_slot":{"kid":"site-recovery-rsa-oaep-sha256-v1","alg":"RSA-OAEP-256",
             "wrapped_cek":"%s"},
-            "metadata":{"slug":"%s","title":"%s","excerpt":"%s"}}
-            """.formatted(repeatHex("11", 384), slug, title, excerpt).trim();
+            "metadata":{"slug":"%s","title":"%s","excerpt":"%s","description":"%s"}}
+            """.formatted(repeatHex("11", 384), slug, title, excerpt, description).trim();
     }
 
     private static String repeatHex(String byteHex, int byteCount) {

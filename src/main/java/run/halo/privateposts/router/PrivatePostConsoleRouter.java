@@ -188,7 +188,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
                             ));
                         }
 
-                        return resolveRefreshDocument(body)
+                        return resolveRefreshDocument(body, sourcePost)
                             .flatMap(document -> siteRecoveryKeyService.unwrap(hexToBytes(siteRecoverySlot.getWrappedCek()))
                                 .map(contentKey -> {
                                     PrivatePost.Bundle nextBundle =
@@ -229,14 +229,33 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
             .onErrorResume(IllegalStateException.class, this::internalServerErrorResponse);
     }
 
-    private Mono<RefreshDocument> resolveRefreshDocument(SiteRecoveryRefreshRequest request) {
+    private Mono<RefreshDocument> resolveRefreshDocument(SiteRecoveryRefreshRequest request, Post sourcePost) {
         if (StringUtils.hasText(request.payloadFormat()) && StringUtils.hasText(request.content())) {
             return Mono.just(new RefreshDocument(request.payloadFormat().trim(), request.content()));
+        }
+
+        String snapshotName = resolveRefreshSnapshotName(request, sourcePost);
+        if (StringUtils.hasText(snapshotName)) {
+            return postContentService.getSpecifiedContent(request.postName(), snapshotName)
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("当前无法读取待发布草稿正文，请重新保存正文后再发布")))
+                .map(this::toRefreshDocument);
         }
 
         return postContentService.getHeadContent(request.postName())
             .switchIfEmpty(Mono.error(new IllegalArgumentException("当前无法读取已保存正文，请刷新编辑页后重试")))
             .map(this::toRefreshDocument);
+    }
+
+    private String resolveRefreshSnapshotName(SiteRecoveryRefreshRequest request, Post sourcePost) {
+        if (StringUtils.hasText(request.snapshotName())) {
+            return request.snapshotName().trim();
+        }
+
+        if (sourcePost == null || sourcePost.getSpec() == null) {
+            return "";
+        }
+
+        return sourcePost.getSpec().getHeadSnapshot();
     }
 
     private RefreshDocument toRefreshDocument(ContentWrapper contentWrapper) {
@@ -528,6 +547,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
     private record SiteRecoveryRefreshRequest(String postName,
                                               String payloadFormat,
                                               String content,
+                                              String snapshotName,
                                               BundleMetadataPayload metadata,
                                               String nextPassword) {
     }
@@ -535,7 +555,8 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
     private record BundleMetadataPayload(String slug,
                                          String title,
                                          String excerpt,
-                                         String publishedAt) {
+                                         String publishedAt,
+                                         String description) {
         private PrivatePost.BundleMetadata toBundleMetadata() {
             if (!StringUtils.hasText(slug) || !StringUtils.hasText(title)) {
                 throw new IllegalArgumentException("metadata.slug 和 metadata.title 不能为空");
@@ -546,6 +567,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
             metadata.setTitle(title.trim());
             metadata.setExcerpt(StringUtils.hasText(excerpt) ? excerpt.trim() : null);
             metadata.setPublishedAt(StringUtils.hasText(publishedAt) ? publishedAt.trim() : null);
+            metadata.setDescription(StringUtils.hasText(description) ? description.trim() : null);
             return metadata;
         }
     }

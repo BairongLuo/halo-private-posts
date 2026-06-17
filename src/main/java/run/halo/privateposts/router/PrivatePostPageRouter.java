@@ -65,6 +65,7 @@ public class PrivatePostPageRouter {
         model.put("excerpt", nullToEmpty(view.excerpt()));
         model.put("slug", view.slug());
         model.put("publishedAt", nullToEmpty(view.publishedAt()));
+        model.put("description", nullToEmpty(view.description()));
         model.put("idleTimeoutMs", 300000);
         model.put(
             "bundleApiPath",

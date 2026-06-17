@@ -89,6 +89,27 @@ async function bootReader(element: HTMLElement) {
   const lifecycleController = new AbortController()
   const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'touchstart']
   const isUnlocked = () => inlineThemeUnlocked || !content.hidden
+  let viewPromise: Promise<PrivatePostView> | null = null
+
+  const loadView = (): Promise<PrivatePostView> => {
+    if (!viewPromise) {
+      viewPromise = fetchPrivatePostView(bundleUrl)
+        .then((view) => {
+          syncDescription(lockPanel, readDescription(view))
+          return view
+        })
+        .catch((error) => {
+          viewPromise = null
+          throw error
+        })
+    }
+
+    return viewPromise
+  }
+
+  void loadView().catch(() => {
+    // Keep the initial server-rendered lock UI if the eager metadata refresh fails.
+  })
 
   const relock = (message: string) => {
     if (idleTimer) {
@@ -197,7 +218,7 @@ async function bootReader(element: HTMLElement) {
     setStatus(status, 'neutral', '正在拉取密文并在浏览器中解密…')
 
     try {
-      const view = await fetchPrivatePostView(bundleUrl)
+      const view = await loadView()
       const decrypted = await decryptPrivatePost(view.bundle, password)
       const renderedHtml = await renderPrivatePostDocument(decrypted)
 
@@ -227,6 +248,36 @@ async function fetchPrivatePostView(bundleUrl: string): Promise<PrivatePostView>
   }
 
   return (await response.json()) as PrivatePostView
+}
+
+function readDescription(view: PrivatePostView): string {
+  return (view.description || view.bundle.metadata?.description || '').trim()
+}
+
+function syncDescription(lockPanel: HTMLElement, description: string) {
+  const current = lockPanel.querySelector<HTMLElement>('[data-hpp-description], .hpp-description')
+  if (!description) {
+    current?.remove()
+    return
+  }
+
+  const element = current ?? createDescriptionElement(lockPanel)
+  element.textContent = description
+}
+
+function createDescriptionElement(lockPanel: HTMLElement): HTMLElement {
+  const element = document.createElement('p')
+  element.className = 'hpp-description'
+  element.dataset.hppDescription = 'true'
+
+  const form = lockPanel.querySelector('[data-hpp-form]')
+  if (form) {
+    lockPanel.insertBefore(element, form)
+    return element
+  }
+
+  lockPanel.appendChild(element)
+  return element
 }
 
 function setStatus(element: HTMLElement, state: 'neutral' | 'success' | 'error', message: string) {
