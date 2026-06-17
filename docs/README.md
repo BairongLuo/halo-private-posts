@@ -8,7 +8,6 @@
 - [MAINTENANCE.md](MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
 - [SAVE_ENCRYPTION_CONTRACT.md](SAVE_ENCRYPTION_CONTRACT.md)：保存、加密和密文同步行为契约
 - [RECOVERY_MODES.md](RECOVERY_MODES.md)：当前恢复模型
-- [ZKVAULT_INTEGRATION.md](ZKVAULT_INTEGRATION.md)：ZKVault 集成说明
 
 ## 质量与流程
 

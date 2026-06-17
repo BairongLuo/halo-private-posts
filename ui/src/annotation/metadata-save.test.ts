@@ -10,6 +10,8 @@ import {
   normalizeSaveRequestBodyText,
   parseContentBody,
   parseMetadataPostBody,
+  bundleMetadataEquals,
+  resolveManagedRefreshPlan,
   shouldManageEncryptionOnSave,
 } from '@/annotation/save-request'
 
@@ -209,5 +211,59 @@ describe('publish request detection', () => {
       method: 'PUT',
       url: '/apis/api.console.halo.run/v1alpha1/posts/demo-post/content',
     })).toBeNull()
+  })
+})
+
+describe('managed refresh plan (released-content contract)', () => {
+  it('uses request content only when publishing', () => {
+    expect(resolveManagedRefreshPlan({
+      isPublishing: true,
+      metadataChanged: false,
+      passwordChanged: false,
+    })).toEqual({ action: 'refresh', useRequestContent: true })
+  })
+
+  it('refreshes from released content (not draft) when metadata changes on a draft save', () => {
+    expect(resolveManagedRefreshPlan({
+      isPublishing: false,
+      metadataChanged: true,
+      passwordChanged: false,
+    })).toEqual({ action: 'refresh', useRequestContent: false })
+  })
+
+  it('refreshes from released content when password changes on a draft save', () => {
+    expect(resolveManagedRefreshPlan({
+      isPublishing: false,
+      metadataChanged: false,
+      passwordChanged: true,
+    })).toEqual({ action: 'refresh', useRequestContent: false })
+  })
+
+  it('does not touch the ciphertext when a draft save changes neither metadata nor password', () => {
+    expect(resolveManagedRefreshPlan({
+      isPublishing: false,
+      metadataChanged: false,
+      passwordChanged: false,
+    })).toEqual({ action: 'none', useRequestContent: false })
+  })
+})
+
+describe('bundle metadata equality', () => {
+  it('treats missing optional fields as empty', () => {
+    expect(bundleMetadataEquals(
+      { title: 'T', slug: 's' },
+      { title: 'T', slug: 's', excerpt: '', description: '', published_at: '' }
+    )).toBe(true)
+  })
+
+  it('detects title and description changes', () => {
+    expect(bundleMetadataEquals(
+      { title: 'T', slug: 's' },
+      { title: 'T2', slug: 's' }
+    )).toBe(false)
+    expect(bundleMetadataEquals(
+      { title: 'T', slug: 's', description: 'a' },
+      { title: 'T', slug: 's', description: 'b' }
+    )).toBe(false)
   })
 })

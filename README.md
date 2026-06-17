@@ -14,8 +14,6 @@
 
 <img src="docs/images/51_2.png" alt="文章列表状态" width="50%" />
 
-<img src="docs/images/post-list-status.png" alt="文章列表状态（旧版）" width="50%" />
-
 ## 核心能力
 
 - 给 Halo 原生文章设置访问密码，不需要新建另一套文章。

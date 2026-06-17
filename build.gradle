@@ -9,7 +9,7 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '1.2.0'
+version = '1.2.1'
 
 def pluginVersion = project.version.toString()
 def haloPlatformVersion = '2.24.0'

@@ -81,6 +81,11 @@ export async function fetchHaloPostHeadContent(name: string): Promise<HaloPostCo
   return mapContentWrapper(data)
 }
 
+export async function fetchHaloPostReleaseContent(name: string): Promise<HaloPostContent> {
+  const { data } = await consoleApiClient.content.post.fetchPostReleaseContent({ name })
+  return mapContentWrapper(data)
+}
+
 export async function fetchHaloPostSnapshotContent(
   name: string,
   snapshotName: string

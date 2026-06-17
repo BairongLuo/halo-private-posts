@@ -3,7 +3,7 @@ import type { Content, Post } from '@halo-dev/api-client'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
-  fetchHaloPostHeadContent,
+  fetchHaloPostReleaseContent,
   fetchHaloPostSnapshotContent,
   getHaloPostBundleAnnotation,
   getHaloPostByName,
@@ -39,6 +39,8 @@ import {
   parseJson,
   parseMetadataPostBody,
   parsePostRequestBody,
+  bundleMetadataEquals,
+  resolveManagedRefreshPlan,
   resolvePendingSaveAction,
   shouldManageEncryptionOnSave,
   type PendingSaveAction,
@@ -900,19 +902,39 @@ async function prepareManagedSaveResult(
     nextBundleText = JSON.stringify(nextBundle, null, 2)
     action = 'lock'
   } else if (currentBundle) {
-    nextBundleText = JSON.stringify({
-      ...currentBundle,
-      metadata: input.metadata,
-    }, null, 2)
-    action = 'refresh'
     refreshNextPassword = nextPassword || undefined
+    const plan = resolveManagedRefreshPlan({
+      isPublishing: input.isPublishing,
+      metadataChanged: !bundleMetadataEquals(currentBundle.metadata, input.metadata),
+      passwordChanged: Boolean(refreshNextPassword),
+    })
 
-    if (hasContentPayload(input.content)) {
-      const nextDraftContent = readDraftContent(input.content)
-      refreshPayloadFormat = nextDraftContent.payload_format
-      refreshContent = nextDraftContent.content
+    if (plan.action === 'refresh') {
+      nextBundleText = JSON.stringify({
+        ...currentBundle,
+        metadata: input.metadata,
+      }, null, 2)
+      action = 'refresh'
+
+      if (plan.useRequestContent && hasContentPayload(input.content)) {
+        // 仅发布场景:用即将发布的正文重算密文(它马上会成为新的已发布内容)。
+        const nextDraftContent = readDraftContent(input.content)
+        refreshPayloadFormat = nextDraftContent.payload_format
+        refreshContent = nextDraftContent.content
+        refreshSnapshotName = input.snapshotNameHint
+      } else {
+        // 仅保存元数据/改密码:不带草稿正文,让服务端按已发布快照重算密文,
+        // 避免把未发布的草稿正文加密后暴露给读者。
+        refreshPayloadFormat = undefined
+        refreshContent = undefined
+        refreshSnapshotName = undefined
+      }
+    } else {
+      // 草稿正文变化但密码、元数据均未变:不触碰密文,公开页继续显示已发布版本。
+      nextBundleText = JSON.stringify(currentBundle, null, 2)
+      action = 'none'
+      refreshNextPassword = undefined
     }
-    refreshSnapshotName = input.snapshotNameHint
   } else {
     throw new Error('当前密文异常，请输入访问密码后重新保存')
   }
@@ -1037,26 +1059,25 @@ async function resolveCurrentMetadata(postName: string): Promise<BundleMetadata>
 }
 
 async function resolveContentForEncryption(input: PreparedSaveInput): Promise<Content> {
-  if (hasContentPayload(input.content)) {
-    return input.content
-  }
-
   if (!input.postNameHint) {
     throw new Error('当前文章尚未保存，请先保存文章后再启用加密')
   }
 
+  // 发布场景:用即将发布的快照加密(它马上会成为新的已发布内容)。
   if (input.snapshotNameHint) {
     return fetchContentSnapshotForEncryption(input.postNameHint, input.snapshotNameHint)
   }
 
+  // 仅保存草稿时的首次加密:必须基于已发布内容,忽略请求体里的草稿正文,
+  // 否则会把未发布的草稿正文加密后暴露给读者。
   try {
-    const headContent = await fetchHaloPostHeadContent(input.postNameHint)
-    if (!headContent.raw?.trim() && !headContent.content?.trim()) {
+    const releaseContent = await fetchHaloPostReleaseContent(input.postNameHint)
+    if (!releaseContent.raw?.trim() && !releaseContent.content?.trim()) {
       throw new Error('no content')
     }
-    return toContentPayload(headContent)
+    return toContentPayload(releaseContent)
   } catch {
-    throw new Error('当前文章还没有已保存的正文，请先保存正文后再启用加密')
+    throw new Error('当前文章尚未发布,请先发布文章后再启用加密')
   }
 }
 

@@ -1,4 +1,5 @@
 import type { Content, Post, PostRequest } from '@halo-dev/api-client'
+import type { BundleMetadata } from '@/types/private-post'
 
 export type PendingSaveAction = 'none' | 'lock' | 'unlock' | 'refresh'
 
@@ -19,6 +20,49 @@ export function resolvePendingSaveAction(args: {
   }
 
   return 'none'
+}
+
+export function bundleMetadataEquals(
+  a: BundleMetadata | undefined,
+  b: BundleMetadata | undefined
+): boolean {
+  const left = a ?? ({} as BundleMetadata)
+  const right = b ?? ({} as BundleMetadata)
+  return (left.title ?? '') === (right.title ?? '')
+    && (left.slug ?? '') === (right.slug ?? '')
+    && (left.excerpt ?? '') === (right.excerpt ?? '')
+    && (left.published_at ?? '') === (right.published_at ?? '')
+    && (left.description ?? '') === (right.description ?? '')
+}
+
+export interface ManagedRefreshPlan {
+  // 'refresh':重算密文;'none':不触碰密文(仅保存草稿且密码/元数据都没变)。
+  action: 'refresh' | 'none'
+  // 是否把请求体里的草稿正文作为密文新内容。仅发布时为 true;
+  // 仅保存草稿时必须为 false,改由服务端按已发布快照取正文。
+  useRequestContent: boolean
+}
+
+/**
+ * 已加密文章再次保存时,决定是否更新密文以及用哪份正文。
+ *
+ * 核心约束:加密密文始终基于已发布内容。仅保存草稿(非发布)时绝不使用草稿正文,
+ * 否则会把未发布的草稿正文加密后暴露给读者。
+ */
+export function resolveManagedRefreshPlan(args: {
+  isPublishing: boolean
+  metadataChanged: boolean
+  passwordChanged: boolean
+}): ManagedRefreshPlan {
+  if (args.isPublishing) {
+    return { action: 'refresh', useRequestContent: true }
+  }
+
+  if (args.metadataChanged || args.passwordChanged) {
+    return { action: 'refresh', useRequestContent: false }
+  }
+
+  return { action: 'none', useRequestContent: false }
 }
 
 export function shouldManageEncryptionOnSave(args: {

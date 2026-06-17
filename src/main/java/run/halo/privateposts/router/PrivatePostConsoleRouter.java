@@ -188,7 +188,7 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
                             ));
                         }
 
-                        return resolveRefreshDocument(body, sourcePost)
+                        return resolveRefreshDocument(body)
                             .flatMap(document -> siteRecoveryKeyService.unwrap(hexToBytes(siteRecoverySlot.getWrappedCek()))
                                 .map(contentKey -> {
                                     PrivatePost.Bundle nextBundle =
@@ -229,33 +229,31 @@ public class PrivatePostConsoleRouter implements CustomEndpoint {
             .onErrorResume(IllegalStateException.class, this::internalServerErrorResponse);
     }
 
-    private Mono<RefreshDocument> resolveRefreshDocument(SiteRecoveryRefreshRequest request, Post sourcePost) {
+    private Mono<RefreshDocument> resolveRefreshDocument(SiteRecoveryRefreshRequest request) {
         if (StringUtils.hasText(request.payloadFormat()) && StringUtils.hasText(request.content())) {
             return Mono.just(new RefreshDocument(request.payloadFormat().trim(), request.content()));
         }
 
-        String snapshotName = resolveRefreshSnapshotName(request, sourcePost);
+        String snapshotName = resolveRefreshSnapshotName(request);
         if (StringUtils.hasText(snapshotName)) {
             return postContentService.getSpecifiedContent(request.postName(), snapshotName)
                 .switchIfEmpty(Mono.error(new IllegalArgumentException("当前无法读取待发布草稿正文，请重新保存正文后再发布")))
                 .map(this::toRefreshDocument);
         }
 
-        return postContentService.getHeadContent(request.postName())
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("当前无法读取已保存正文，请刷新编辑页后重试")))
+        // 默认按已发布内容重算密文,保存草稿不应改变读者看到的已发布正文。
+        return postContentService.getReleaseContent(request.postName())
+            .switchIfEmpty(Mono.error(new IllegalArgumentException("当前文章尚未发布，无法更新加密内容，请先发布文章")))
             .map(this::toRefreshDocument);
     }
 
-    private String resolveRefreshSnapshotName(SiteRecoveryRefreshRequest request, Post sourcePost) {
+    private String resolveRefreshSnapshotName(SiteRecoveryRefreshRequest request) {
         if (StringUtils.hasText(request.snapshotName())) {
             return request.snapshotName().trim();
         }
 
-        if (sourcePost == null || sourcePost.getSpec() == null) {
-            return "";
-        }
-
-        return sourcePost.getSpec().getHeadSnapshot();
+        // 不再回退到 headSnapshot(草稿快照);无显式快照时统一走已发布内容。
+        return "";
     }
 
     private RefreshDocument toRefreshDocument(ContentWrapper contentWrapper) {
