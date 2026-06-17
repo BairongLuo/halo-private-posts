@@ -16,7 +16,6 @@ const BUNDLE_CIPHER = 'aes-256-gcm'
 const BUNDLE_KDF = 'envelope'
 const PASSWORD_SLOT_KDF = 'scrypt'
 const SITE_RECOVERY_WRAP_ALGORITHM = 'RSA-OAEP-256'
-const AES_GCM_ALGORITHM = 'aes-256-gcm'
 const AES_GCM_TAG_LENGTH = 128
 const AES_GCM_TAG_BYTES = AES_GCM_TAG_LENGTH / 8
 const BUNDLE_SALT_BYTES = 16
@@ -397,7 +396,7 @@ function validateSupportedBundle(bundle: EncryptedPrivatePostBundle): void {
 async function unwrapContentKeyWithPassword(
   bundle: EncryptedPrivatePostBundle,
   password: string
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   const cryptoApi = globalThis.crypto?.subtle
   if (!cryptoApi) {
     throw new Error('当前环境不支持 Web Crypto API')
@@ -435,7 +434,7 @@ async function unwrapContentKeyWithPassword(
 
 async function decryptDocumentWithContentKey(
   bundle: EncryptedPrivatePostBundle,
-  contentKeyBytes: Uint8Array
+  contentKeyBytes: Uint8Array<ArrayBuffer>
 ): Promise<DecryptedPrivatePostDocument> {
   const cryptoApi = globalThis.crypto?.subtle
   if (!cryptoApi) {
@@ -488,8 +487,8 @@ async function decryptDocumentWithContentKey(
   }
 }
 
-async function derivePasswordKeyBytes(password: string, salt: Uint8Array): Promise<Uint8Array> {
-  return await scrypt(
+async function derivePasswordKeyBytes(password: string, salt: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+  const result = await scrypt(
     new TextEncoder().encode(password),
     salt,
     SCRYPT_N,
@@ -497,12 +496,13 @@ async function derivePasswordKeyBytes(password: string, salt: Uint8Array): Promi
     SCRYPT_P,
     32
   )
+  return result as Uint8Array<ArrayBuffer>
 }
 
-async function createPasswordWrappedContentKey(password: string, contentKeyBytes: Uint8Array): Promise<{
-  salt: Uint8Array
-  wrapIv: Uint8Array
-  wrappedContentKey: Uint8Array
+async function createPasswordWrappedContentKey(password: string, contentKeyBytes: Uint8Array<ArrayBuffer>): Promise<{
+  salt: Uint8Array<ArrayBuffer>
+  wrapIv: Uint8Array<ArrayBuffer>
+  wrappedContentKey: Uint8Array<ArrayBuffer>
 }> {
   const cryptoObject = globalThis.crypto
   const cryptoApi = cryptoObject?.subtle
@@ -541,8 +541,8 @@ async function createPasswordWrappedContentKey(password: string, contentKeyBytes
 
 async function createSiteRecoveryWrappedContentKey(
   siteRecoveryPublicKey: SiteRecoveryPublicKey,
-  contentKeyBytes: Uint8Array
-): Promise<Uint8Array> {
+  contentKeyBytes: Uint8Array<ArrayBuffer>
+): Promise<Uint8Array<ArrayBuffer>> {
   const cryptoApi = globalThis.crypto?.subtle
   if (!cryptoApi) {
     throw new Error('当前环境不支持 Web Crypto API')
@@ -607,7 +607,7 @@ function buildSiteRecoverySlot(
   }
 }
 
-function base64ToBytes(value: string): Uint8Array {
+function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   const normalized = value.trim()
   if (!normalized) {
     throw new Error('非法 base64 内容')
@@ -628,10 +628,10 @@ function base64ToBytes(value: string): Uint8Array {
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index)
   }
-  return bytes
+  return bytes as Uint8Array<ArrayBuffer>
 }
 
-function hexToBytes(value: string): Uint8Array {
+function hexToBytes(value: string): Uint8Array<ArrayBuffer> {
   const hex = value.trim()
   if (hex.length === 0 || hex.length % 2 !== 0) {
     throw new Error('Bundle 中存在非法 hex 字段')
@@ -649,7 +649,7 @@ function hexToBytes(value: string): Uint8Array {
   return bytes
 }
 
-function joinBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+function joinBytes(left: Uint8Array, right: Uint8Array): Uint8Array<ArrayBuffer> {
   const joined = new Uint8Array(left.length + right.length)
   joined.set(left, 0)
   joined.set(right, left.length)
