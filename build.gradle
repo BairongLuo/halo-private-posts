@@ -9,11 +9,11 @@ plugins {
 }
 
 group = 'run.halo.privateposts'
-version = '1.2.1'
+version = '1.2.4'
 
 def pluginVersion = project.version.toString()
 def haloPlatformVersion = '2.24.0'
-def haloRuntimeVersion = '2.24.1'
+def haloRuntimeVersion = '2.25.2'
 def uiNodeVersion = '20.19.0'
 def uiNpmVersion = '10.8.2'
 
@@ -183,6 +183,7 @@ tasks.register('verifyDocs') {
         def requiredDocs = [
             'docs/README.md',
             'docs/ARCHITECTURE.md',
+            'docs/API.md',
             'docs/DOCUMENTATION_STANDARDS.md',
             'docs/MAINTENANCE.md',
             'docs/OPERATIONS.md',
@@ -200,6 +201,7 @@ tasks.register('verifyDocs') {
         def docsIndexText = file('docs/README.md').getText('UTF-8')
         def requiredDocsIndexLinks = [
             'ARCHITECTURE.md',
+            'API.md',
             'DOCUMENTATION_STANDARDS.md',
             'MAINTENANCE.md',
             'OPERATIONS.md',

@@ -48,17 +48,11 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
     private String buildInlineReaderHtml(Post post, PrivatePost.Bundle bundle) {
         String slug = post.getSpec().getSlug();
         String encodedSlug = UriUtils.encode(slug, "UTF-8");
-        String excerpt = readExcerpt(post, bundle);
         String description = readDescription(bundle);
         String postName = post.getMetadata() == null ? "" : post.getMetadata().getName();
-        String safeExcerpt = StringUtils.hasText(excerpt)
-            ? """
-                <p class="hpp-excerpt">%s</p>
-                """.formatted(escape(excerpt))
-            : "";
         String safeDescription = StringUtils.hasText(description)
             ? """
-                    <p class="hpp-description" data-hpp-description>%s</p>
+                    <p class="hpp-excerpt" data-hpp-description>%s</p>
                 """.formatted(escape(description))
             : "";
 
@@ -75,7 +69,6 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
                   <div class="hpp-lock" data-hpp-lock-panel>
                     %s
                     <p class="hpp-status" data-hpp-status data-status="neutral" hidden></p>
-                    %s
                     <form class="hpp-form" data-hpp-form>
                       <label class="hpp-label" for="hpp-password-%s">
                         访问密码
@@ -106,29 +99,10 @@ public class InlinePrivatePostContentHandler implements ReactivePostContentHandl
             """.formatted(
             escape("/private-posts/data?slug=" + encodedSlug),
             IDLE_TIMEOUT_MS,
-            safeExcerpt,
             safeDescription,
             escape(postName),
             escape(postName)
         );
-    }
-
-    private static String readExcerpt(Post post, PrivatePost.Bundle bundle) {
-        if (post.getSpec() != null
-            && post.getSpec().getExcerpt() != null
-            && StringUtils.hasText(post.getSpec().getExcerpt().getRaw())) {
-            return post.getSpec().getExcerpt().getRaw();
-        }
-
-        if (post.getStatus() != null && StringUtils.hasText(post.getStatus().getExcerpt())) {
-            return post.getStatus().getExcerpt();
-        }
-
-        if (bundle != null && bundle.getMetadata() != null && StringUtils.hasText(bundle.getMetadata().getExcerpt())) {
-            return bundle.getMetadata().getExcerpt();
-        }
-
-        return "";
     }
 
     private static String readDescription(PrivatePost.Bundle bundle) {

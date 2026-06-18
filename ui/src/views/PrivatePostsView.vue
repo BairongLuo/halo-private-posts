@@ -237,7 +237,6 @@ async function initializeView() {
         <template v-if="routePostName && (selectedPost || selectedPostMapping)">
           <h2>{{ selectedArticleTitle || routePostName }}</h2>
           <p v-if="selectedArticleSlug" class="focus-slug">{{ selectedArticleSlug }}</p>
-          <p class="focus-excerpt" v-if="selectedPost?.excerpt">{{ selectedPost.excerpt }}</p>
 
           <div class="focus-panels">
             <section class="action-panel">
@@ -347,7 +346,6 @@ async function initializeView() {
                 </div>
               </dl>
 
-              <p class="post-item-excerpt">{{ item.spec.excerpt || '无公开摘要' }}</p>
             </div>
 
             <span v-if="item.spec.postName === routePostName" class="post-current">
@@ -366,12 +364,14 @@ async function initializeView() {
   padding: 28px;
   color: var(--hpp-text);
   background:
-    radial-gradient(circle at top left, var(--hpp-accent-soft), transparent 32%),
+    radial-gradient(circle at 8% 6%, rgb(var(--hpp-primary-rgb) / 0.18), transparent 28%),
+    radial-gradient(circle at 88% 10%, rgb(var(--hpp-secondary-rgb) / 0.14), transparent 28%),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.36), transparent 34%),
     linear-gradient(180deg, var(--hpp-page-bg) 0%, var(--hpp-page-bg-alt) 100%);
   --hpp-hero-text: #f8fafc;
   --hpp-hero-muted: rgba(248, 250, 252, 0.86);
-  --hpp-card-bg: rgba(255, 255, 255, 0.82);
-  --hpp-card-bg-compact: rgba(248, 250, 252, 0.9);
+  --hpp-card-bg: rgba(255, 255, 255, 0.58);
+  --hpp-card-bg-compact: rgba(255, 255, 255, 0.46);
   --hpp-card-border: var(--hpp-surface-border);
   --hpp-card-shadow: var(--hpp-shadow);
   --hpp-pill-bg: rgba(15, 23, 42, 0.08);
@@ -382,9 +382,9 @@ async function initializeView() {
   --hpp-button-secondary-bg: rgba(15, 23, 42, 0.18);
   --hpp-button-border: rgba(255, 255, 255, 0.18);
   --hpp-button-text: var(--hpp-hero-text);
-  --hpp-panel-bg: rgba(15, 23, 42, 0.03);
+  --hpp-panel-bg: rgba(255, 255, 255, 0.34);
   --hpp-panel-border: var(--hpp-surface-border);
-  --hpp-input-bg: rgba(255, 255, 255, 0.96);
+  --hpp-input-bg: rgba(255, 255, 255, 0.62);
   --hpp-input-border: rgba(148, 163, 184, 0.4);
   --hpp-list-divider: var(--hpp-surface-border);
   --hpp-list-focus-bg: rgba(15, 118, 110, 0.04);
@@ -395,8 +395,8 @@ async function initializeView() {
   .private-posts-view {
     --hpp-hero-text: #e2e8f0;
     --hpp-hero-muted: rgba(226, 232, 240, 0.82);
-    --hpp-card-bg: rgba(15, 23, 42, 0.72);
-    --hpp-card-bg-compact: rgba(15, 23, 42, 0.62);
+    --hpp-card-bg: rgba(15, 23, 42, 0.5);
+    --hpp-card-bg-compact: rgba(15, 23, 42, 0.4);
     --hpp-pill-bg: rgba(148, 163, 184, 0.12);
     --hpp-pill-text: #cbd5e1;
     --hpp-pill-bg-active: rgba(45, 212, 191, 0.16);
@@ -404,9 +404,9 @@ async function initializeView() {
     --hpp-button-bg: rgba(15, 23, 42, 0.28);
     --hpp-button-secondary-bg: rgba(15, 23, 42, 0.44);
     --hpp-button-border: rgba(148, 163, 184, 0.22);
-    --hpp-panel-bg: rgba(15, 23, 42, 0.48);
+    --hpp-panel-bg: rgba(15, 23, 42, 0.34);
     --hpp-panel-border: rgba(148, 163, 184, 0.2);
-    --hpp-input-bg: rgba(15, 23, 42, 0.7);
+    --hpp-input-bg: rgba(15, 23, 42, 0.52);
     --hpp-input-border: rgba(148, 163, 184, 0.3);
     --hpp-list-focus-bg: rgba(45, 212, 191, 0.1);
   }
@@ -426,6 +426,8 @@ async function initializeView() {
   background: linear-gradient(135deg, var(--hpp-accent), var(--hpp-accent-strong));
   color: var(--hpp-hero-text);
   box-shadow: var(--hpp-card-shadow);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
 }
 
 .eyebrow {
@@ -465,7 +467,8 @@ async function initializeView() {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(24px) saturate(1.28);
+  -webkit-backdrop-filter: blur(24px) saturate(1.28);
 }
 
 .hero-button.secondary {

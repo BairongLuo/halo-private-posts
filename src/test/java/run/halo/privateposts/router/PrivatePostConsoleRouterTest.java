@@ -563,6 +563,8 @@ class PrivatePostConsoleRouterTest {
         PrivatePost.Bundle refreshedBundle = privatePost("demo-post").getSpec().getBundle();
         refreshedBundle.getMetadata().setTitle("Updated From Metadata Save");
         refreshedBundle.getMetadata().setDescription("请输入访问口令继续阅读");
+        AtomicReference<Post> updatedSourcePost = new AtomicReference<>();
+        AtomicReference<PrivatePost> upsertedPrivatePost = new AtomicReference<>();
         ContentWrapper releaseContent = ContentWrapper.builder()
             .content("<p>released markdown body</p>")
             .raw("# released markdown body")
@@ -579,8 +581,16 @@ class PrivatePostConsoleRouterTest {
             eq("# released markdown body"),
             any(PrivatePost.BundleMetadata.class)
         )).thenReturn(refreshedBundle);
-        when(extensionClient.update(any(Post.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
-        when(privatePostService.upsert(any(PrivatePost.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(extensionClient.update(any(Post.class))).thenAnswer(invocation -> {
+            Post post = invocation.getArgument(0);
+            updatedSourcePost.set(post);
+            return Mono.just(post);
+        });
+        when(privatePostService.upsert(any(PrivatePost.class))).thenAnswer(invocation -> {
+            PrivatePost privatePost = invocation.getArgument(0);
+            upsertedPrivatePost.set(privatePost);
+            return Mono.just(privatePost);
+        });
 
         WebTestClient client = bindClient(newRouter(
             siteRecoveryKeyService,
@@ -619,6 +629,14 @@ class PrivatePostConsoleRouterTest {
             metadataCaptor.capture()
         );
         org.assertj.core.api.Assertions.assertThat(metadataCaptor.getValue().getDescription())
+            .isEqualTo("请输入访问口令继续阅读");
+
+        String persistedBundleText = updatedSourcePost.get().getMetadata().getAnnotations()
+            .get(PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION);
+        JsonNode persistedBundleJson = objectMapper.readTree(persistedBundleText);
+        assertThat(persistedBundleJson.at("/metadata/description").asText())
+            .isEqualTo("请输入访问口令继续阅读");
+        assertThat(upsertedPrivatePost.get().getSpec().getBundle().getMetadata().getDescription())
             .isEqualTo("请输入访问口令继续阅读");
     }
 

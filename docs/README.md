@@ -7,6 +7,7 @@
 - [ARCHITECTURE.md](ARCHITECTURE.md)：当前实现的分层、数据流和边界
 - [MAINTENANCE.md](MAINTENANCE.md)：维护说明，记录当前实现约束和主要入口
 - [SAVE_ENCRYPTION_CONTRACT.md](SAVE_ENCRYPTION_CONTRACT.md)：保存、加密和密文同步行为契约
+- [API.md](API.md)：插件 API、Halo 原生保存链路和 reader 资源说明
 - [RECOVERY_MODES.md](RECOVERY_MODES.md)：当前恢复模型
 
 ## 质量与流程

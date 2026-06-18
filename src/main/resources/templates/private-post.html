@@ -8,7 +8,6 @@
       th:attr="
         data-title=${title},
         data-slug=${slug},
-        data-excerpt=${excerpt},
         data-published-at=${publishedAt},
         data-bundle-url=${bundleApiPath},
         data-idle-timeout-ms=${idleTimeoutMs}
@@ -18,8 +17,13 @@
         <div class="hpp-hero">
           <p class="hpp-eyebrow">Private Post</p>
           <h1 class="hpp-title" th:text="${title}">Private Post</h1>
-          <p class="hpp-excerpt" th:if="${!#strings.isEmpty(excerpt)}" th:text="${excerpt}">
-            公开摘要
+          <p
+            class="hpp-excerpt"
+            data-hpp-description
+            th:if="${!#strings.isEmpty(description)}"
+            th:text="${description}"
+          >
+            锁定说明
           </p>
           <div class="hpp-meta">
             <span th:text="${slug}">slug</span>
@@ -30,12 +34,6 @@
         <div class="hpp-panel">
           <div class="hpp-lock" data-hpp-lock-panel>
             <p class="hpp-status" data-hpp-status data-status="neutral" hidden></p>
-            <p
-              class="hpp-description"
-              data-hpp-description
-              th:if="${!#strings.isEmpty(description)}"
-              th:text="${description}"
-            ></p>
             <form class="hpp-form" data-hpp-form>
               <label class="hpp-label" for="hpp-password">访问密码</label>
               <input

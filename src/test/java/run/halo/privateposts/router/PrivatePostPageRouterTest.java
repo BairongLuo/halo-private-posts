@@ -114,6 +114,40 @@ class PrivatePostPageRouterTest {
     }
 
     @Test
+    void shouldNotPassExcerptToTemplateModelForEncryptedReaderPage() {
+        PrivatePostService privatePostService = mock(PrivatePostService.class);
+        TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);
+        when(privatePostService.getPublicViewBySlug("hello-halo"))
+            .thenReturn(Mono.just(privatePostView("hello-halo")));
+        when(templateNameResolver.resolveTemplateNameOrDefault(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("private-post")))
+            .thenReturn(Mono.just("private-post"));
+
+        ViewResolver excerptCapturingResolver = (viewName, locale) -> Mono.just(
+            (View) (model, contentType, exchange) -> {
+                byte[] body = String.valueOf(model.get("excerpt")).getBytes(StandardCharsets.UTF_8);
+                exchange.getResponse().getHeaders().set("Content-Type", "text/plain;charset=UTF-8");
+                org.springframework.core.io.buffer.DataBuffer buffer =
+                    exchange.getResponse().bufferFactory().wrap(body);
+                return exchange.getResponse().writeWith(Mono.just(buffer));
+            }
+        );
+        WebTestClient client = WebTestClient.bindToWebHandler(
+            RouterFunctions.toWebHandler(
+                new PrivatePostPageRouter(templateNameResolver, privatePostService).privatePostRouterFunction(),
+                HandlerStrategies.builder().viewResolver(excerptCapturingResolver).build()
+            )
+        ).build();
+
+        client.get()
+            .uri("/private-posts?slug=hello-halo")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().valueEquals("Cache-Control", "no-store")
+            .expectBody(String.class)
+            .value(body -> org.assertj.core.api.Assertions.assertThat(body).isEmpty());
+    }
+
+    @Test
     void shouldReturnEmptyDescriptionInBundleDataResponseWhenNotSet() {
         PrivatePostService privatePostService = mock(PrivatePostService.class);
         TemplateNameResolver templateNameResolver = mock(TemplateNameResolver.class);

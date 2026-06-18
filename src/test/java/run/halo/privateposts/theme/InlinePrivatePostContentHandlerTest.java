@@ -40,7 +40,8 @@ class InlinePrivatePostContentHandlerTest {
 
         assertThat(result.getContent()).contains("data-halo-private-post-reader=\"true\"");
         assertThat(result.getContent()).contains("/private-posts/data?slug=hello-halo-slug");
-        assertThat(result.getContent()).contains("公开摘要");
+        assertThat(result.getContent()).doesNotContain("公开摘要");
+        assertThat(result.getContent()).contains("<p class=\"hpp-excerpt\" data-hpp-description>请输入访问口令继续阅读</p>");
         assertThat(result.getContent()).contains("请输入访问口令继续阅读");
         assertThat(result.getContent()).contains("data-hpp-status data-status=\"neutral\" hidden");
         assertThat(result.getContent()).contains("autocomplete=\"off\"");

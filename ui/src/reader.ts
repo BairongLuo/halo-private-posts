@@ -85,7 +85,7 @@ async function bootReader(element: HTMLElement) {
   let idleTimer: number | undefined
   let activityListenersEnabled = false
   let inlineThemeUnlocked = false
-  const themedHostMarkup = themedHost?.innerHTML ?? null
+  let themedHostMarkup = themedHost?.innerHTML ?? null
   const lifecycleController = new AbortController()
   const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'touchstart']
   const isUnlocked = () => inlineThemeUnlocked || !content.hidden
@@ -95,7 +95,10 @@ async function bootReader(element: HTMLElement) {
     if (!viewPromise) {
       viewPromise = fetchPrivatePostView(bundleUrl)
         .then((view) => {
-          syncDescription(lockPanel, readDescription(view))
+          syncDescription(element, lockPanel, readDescription(view))
+          if (themedHost && !inlineThemeUnlocked) {
+            themedHostMarkup = themedHost.innerHTML
+          }
           return view
         })
         .catch((error) => {
@@ -254,15 +257,23 @@ function readDescription(view: PrivatePostView): string {
   return (view.description || view.bundle.metadata?.description || '').trim()
 }
 
-function syncDescription(lockPanel: HTMLElement, description: string) {
-  const current = lockPanel.querySelector<HTMLElement>('[data-hpp-description], .hpp-description')
+function syncDescription(root: HTMLElement, lockPanel: HTMLElement, description: string) {
+  const currentDescriptions = Array.from(
+    root.querySelectorAll<HTMLElement>('[data-hpp-description], .hpp-description')
+  )
   if (!description) {
-    current?.remove()
+    currentDescriptions.forEach((element) => element.remove())
     return
   }
 
-  const element = current ?? createDescriptionElement(lockPanel)
-  element.textContent = description
+  if (currentDescriptions.length > 0) {
+    currentDescriptions.forEach((element) => {
+      element.textContent = description
+    })
+    return
+  }
+
+  createDescriptionElement(lockPanel).textContent = description
 }
 
 function createDescriptionElement(lockPanel: HTMLElement): HTMLElement {

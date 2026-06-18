@@ -279,7 +279,7 @@ class PrivatePostServiceTest {
             "source-post",
             Map.of(
                 PostPrivatePostSyncListener.PRIVATE_POST_BUNDLE_ANNOTATION,
-                bundleJson("hello-halo", "Hello Halo")
+                bundleJson("hello-halo", "Hello Halo", "新的锁定说明")
             ),
             false,
             false,
@@ -300,7 +300,9 @@ class PrivatePostServiceTest {
         assertThat(result.slug()).isEqualTo("hello-halo");
         assertThat(result.title()).isEqualTo("Hello Halo Updated");
         assertThat(result.excerpt()).isEqualTo("runtime excerpt");
+        assertThat(result.description()).isEqualTo("新的锁定说明");
         assertThat(result.bundle().getMetadata().getTitle()).isEqualTo("Hello Halo");
+        assertThat(result.bundle().getMetadata().getDescription()).isEqualTo("新的锁定说明");
     }
 
     @Test
@@ -443,6 +445,15 @@ class PrivatePostServiceTest {
     }
 
     private static String bundleJson(String slug, String title) {
+        return bundleJson(slug, title, "");
+    }
+
+    private static String bundleJson(String slug, String title, String description) {
+        String descriptionJson = description == null || description.isBlank()
+            ? ""
+            : """
+            ,"description":"%s"
+            """.formatted(description.trim());
         return """
             {"version":3,"payload_format":"markdown","cipher":"aes-256-gcm","kdf":"envelope",
             "data_iv":"00112233445566778899aabb",
@@ -453,8 +464,8 @@ class PrivatePostServiceTest {
             "auth_tag":"00112233445566778899aabbccddeeff"},
             "site_recovery_slot":{"kid":"site-recovery-rsa-oaep-sha256-v1","alg":"RSA-OAEP-256",
             "wrapped_cek":"%s"},
-            "metadata":{"slug":"%s","title":"%s"}}
-            """.formatted(repeatHex("11", 384), slug, title).trim();
+            "metadata":{"slug":"%s","title":"%s"%s}}
+            """.formatted(repeatHex("11", 384), slug, title, descriptionJson).trim();
     }
 
     private static String repeatHex(String byteHex, int byteCount) {

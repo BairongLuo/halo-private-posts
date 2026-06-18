@@ -62,7 +62,7 @@ public class PrivatePostPageRouter {
     private Mono<ServerResponse> renderTemplate(ServerRequest request, PrivatePostView view) {
         Map<String, Object> model = new HashMap<>();
         model.put("title", view.title());
-        model.put("excerpt", nullToEmpty(view.excerpt()));
+        model.put("excerpt", "");
         model.put("slug", view.slug());
         model.put("publishedAt", nullToEmpty(view.publishedAt()));
         model.put("description", nullToEmpty(view.description()));

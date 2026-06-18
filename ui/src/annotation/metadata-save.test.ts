@@ -120,6 +120,7 @@ describe('metadata save encryption flow', () => {
       rawType: 'markdown',
     })
   })
+
 })
 
 describe('publish request detection', () => {

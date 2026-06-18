@@ -195,7 +195,9 @@ describe('reader', () => {
             <button data-hpp-submit type="submit">解锁</button>
           </form>
           <p data-hpp-status data-status="neutral">初始状态</p>
-          <div data-hpp-lock-panel></div>
+          <div data-hpp-lock-panel>
+            <p class="hpp-description" data-hpp-description>旧说明</p>
+          </div>
           <div data-hpp-content hidden></div>
         </div>
       </div>
@@ -204,8 +206,12 @@ describe('reader', () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       json: async () => ({
+        description: '新说明',
         bundle: {
           version: 3,
+          metadata: {
+            description: '新说明',
+          },
         },
       }),
     } as Response)
@@ -229,6 +235,10 @@ describe('reader', () => {
     expect(form).not.toBeNull()
     expect(passwordInput).not.toBeNull()
 
+    await vi.waitFor(() => {
+      expect(host!.querySelector<HTMLElement>('[data-hpp-description]')?.textContent).toBe('新说明')
+    })
+
     passwordInput!.value = 'Halo#2026'
     form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
 
@@ -245,6 +255,7 @@ describe('reader', () => {
       const restoredStatus = host!.querySelector<HTMLElement>('[data-hpp-status]')
       expect(restoredRoot).not.toBeNull()
       expect(restoredRoot!.dataset.hppMounted).toBe('true')
+      expect(host!.querySelector<HTMLElement>('[data-hpp-description]')?.textContent).toBe('新说明')
       expect(restoredStatus?.dataset.status).toBe('neutral')
       expect(restoredStatus?.textContent).toContain('正文已重新锁定')
     })

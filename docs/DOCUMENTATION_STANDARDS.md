@@ -30,6 +30,12 @@
 - 回答“系统为什么这么组织”。
 - 不写发布流程和人工回归步骤。
 
+### `docs/API.md`
+
+- 说明插件自定义 API、依赖的 Halo 原生保存链路、reader 静态资源和数据真源。
+- 回答“调用哪个接口、请求体是什么、接口不负责什么”。
+- 不重复写完整人工回归矩阵。
+
 ### `docs/MAINTENANCE.md`
 
 - 说明当前实现约束、主入口、常见误区和维护注意事项。
@@ -65,6 +71,7 @@
 必须同时检查并按需更新：
 
 - `docs/SAVE_ENCRYPTION_CONTRACT.md`
+- `docs/API.md`
 - `docs/SMOKE_TEST.md`
 - `docs/MAINTENANCE.md`
 
