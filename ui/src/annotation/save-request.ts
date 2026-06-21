@@ -250,6 +250,16 @@ export function extractPostNameFromSaveUrl(url: string, method: string): string 
   return ''
 }
 
+export function normalizePostRouteSegmentCandidate(value: string | null | undefined): string {
+  const candidate = (value ?? '').trim()
+  if (!candidate) {
+    return ''
+  }
+
+  const reservedEditorRouteSegments = new Set(['editor', 'new', 'create'])
+  return reservedEditorRouteSegments.has(candidate.toLowerCase()) ? '' : candidate
+}
+
 export function extractPostNameFromResponse(responseData: unknown): string {
   if (!responseData || typeof responseData !== 'object') {
     return ''

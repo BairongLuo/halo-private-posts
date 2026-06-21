@@ -7,6 +7,7 @@ import {
   extractPostNameFromSaveUrl,
   extractReleaseSnapshotFromResponse,
   isPostPublishRequest,
+  normalizePostRouteSegmentCandidate,
   normalizeSaveRequestBodyText,
   parseContentBody,
   parseMetadataPostBody,
@@ -88,6 +89,20 @@ describe('metadata save encryption flow', () => {
       '/apis/api.console.halo.run/v1alpha1/posts/demo%20post/content',
       'PUT'
     )).toBe('demo post')
+  })
+
+  it('does not treat editor route segments as post names', () => {
+    expect(normalizePostRouteSegmentCandidate('editor')).toBe('')
+    expect(normalizePostRouteSegmentCandidate('new')).toBe('')
+    expect(normalizePostRouteSegmentCandidate('create')).toBe('')
+    expect(normalizePostRouteSegmentCandidate('demo-post')).toBe('demo-post')
+  })
+
+  it('does not extract a post name from create requests', () => {
+    expect(extractPostNameFromSaveUrl(
+      '/apis/content.halo.run/v1alpha1/posts',
+      'POST'
+    )).toBe('')
   })
 
   it('extracts post names from save responses', () => {

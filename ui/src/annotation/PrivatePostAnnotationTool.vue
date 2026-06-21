@@ -40,6 +40,7 @@ import {
   parseMetadataPostBody,
   parsePostRequestBody,
   bundleMetadataEquals,
+  normalizePostRouteSegmentCandidate,
   resolveManagedRefreshPlan,
   resolvePendingSaveAction,
   shouldManageEncryptionOnSave,
@@ -818,7 +819,12 @@ async function resolveSaveInputFromRequest(args: {
 
   const postRequest = parsePostRequestBody(args.bodyText)
   if (postRequest) {
-    const postNameHint = currentPostName.value || extractPostNameFromSaveUrl(args.url, args.method)
+    const postNameHint = args.method.toUpperCase() === 'POST'
+      ? ''
+      : (
+          currentPostName.value
+          || extractPostNameFromSaveUrl(args.url, args.method)
+        )
     rememberLatestContentForPost(postNameHint, postRequest.content)
     return {
       content: postRequest.content,
@@ -1496,20 +1502,33 @@ function readPostNameFromLocation(): string {
 
   const hrefMatch = window.location.href.match(/[?&#](?:name|postName)=([^&#]+)/)
   if (hrefMatch?.[1]) {
-    return decodeURIComponent(hrefMatch[1])
+    const hrefPostName = decodeURIComponent(hrefMatch[1])
+    if (hrefPostName) {
+      return hrefPostName
+    }
   }
 
   const segments = window.location.pathname.split('/').filter(Boolean)
   const postSegmentIndex = segments.findIndex((segment) => segment === 'posts' || segment === 'post')
   if (postSegmentIndex >= 0 && segments[postSegmentIndex + 1]) {
-    return decodeURIComponent(segments[postSegmentIndex + 1])
+    const pathPostName = normalizePostRouteSegmentCandidate(
+      decodeURIComponent(segments[postSegmentIndex + 1])
+    )
+    if (pathPostName) {
+      return pathPostName
+    }
   }
 
   const hashPath = hash.startsWith('#') ? hash.slice(1) : hash
   const hashPathSegments = hashPath.split('?')[0]?.split('/').filter(Boolean) ?? []
   const hashPostSegmentIndex = hashPathSegments.findIndex((segment) => segment === 'posts' || segment === 'post')
   if (hashPostSegmentIndex >= 0 && hashPathSegments[hashPostSegmentIndex + 1]) {
-    return decodeURIComponent(hashPathSegments[hashPostSegmentIndex + 1])
+    const hashPathPostName = normalizePostRouteSegmentCandidate(
+      decodeURIComponent(hashPathSegments[hashPostSegmentIndex + 1])
+    )
+    if (hashPathPostName) {
+      return hashPathPostName
+    }
   }
 
   return ''
