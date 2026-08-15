@@ -2,14 +2,6 @@
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const decryptPrivatePost = vi.fn()
-const renderPrivatePostDocument = vi.fn()
-
-vi.mock('@/utils/private-post-crypto', () => ({
-  decryptPrivatePost,
-  renderPrivatePostDocument,
-}))
-
 describe('reader', () => {
   beforeAll(async () => {
     await import('./reader')
@@ -17,247 +9,153 @@ describe('reader', () => {
 
   beforeEach(() => {
     document.body.innerHTML = ''
-    decryptPrivatePost.mockReset()
-    renderPrivatePostDocument.mockReset()
     vi.stubGlobal('fetch', vi.fn())
   })
 
-  it('mounts a standalone reader, unlocks content, and relocks on pagehide', async () => {
+  function mountHider() {
     document.body.innerHTML = `
-      <div
-        data-halo-private-post-reader
-        data-bundle-url="/private-posts/data?slug=demo-post"
-        data-idle-timeout-ms="300000"
+      <section
+        data-halo-private-post-hide="true"
+        data-hide-post="demo-post"
+        data-hide-index="0"
+        data-hide-verify-url="/apis/api.privateposts.halo.run/v1alpha1/hide-password/verify"
       >
-        <form data-hpp-form>
-          <input data-hpp-password />
-          <button data-hpp-submit type="submit">解锁</button>
-        </form>
-        <p data-hpp-status data-status="neutral">初始状态</p>
-        <div data-hpp-lock-panel></div>
+        <div data-hpp-lock-panel>
+          <p data-hpp-status data-status="neutral"></p>
+          <form data-hpp-form>
+            <input data-hpp-password />
+            <button data-hpp-submit type="submit">解锁</button>
+          </form>
+        </div>
         <div data-hpp-content hidden></div>
-      </div>
+      </section>
     `
+    window.haloPrivatePostsMountHiders?.()
+  }
 
-    const fetchMock = vi.mocked(fetch)
-    fetchMock.mockResolvedValue({
+  it('reveals hidden content after a successful password verify', async () => {
+    mountHider()
+
+    vi.mocked(fetch).mockResolvedValue({
+      status: 200,
       ok: true,
-      json: async () => ({
-        bundle: {
-          version: 3,
-        },
-      }),
+      json: async () => ({ segments: ['https://example.com/file.zip'] }),
     } as Response)
-    decryptPrivatePost.mockResolvedValue({
-      metadata: {
-        slug: 'demo-post',
-        title: 'Demo Post',
-      },
-      payload_format: 'markdown',
-      content: '# Demo',
-    })
-    renderPrivatePostDocument.mockResolvedValue('<p>Unlocked body</p>')
-
-    window.haloPrivatePostsMountReaders?.()
 
     const form = document.querySelector<HTMLFormElement>('[data-hpp-form]')
     const passwordInput = document.querySelector<HTMLInputElement>('[data-hpp-password]')
     const content = document.querySelector<HTMLElement>('[data-hpp-content]')
-    const status = document.querySelector<HTMLElement>('[data-hpp-status]')
     const lockPanel = document.querySelector<HTMLElement>('[data-hpp-lock-panel]')
 
-    expect(form).not.toBeNull()
-    expect(passwordInput).not.toBeNull()
-    expect(content).not.toBeNull()
-    expect(status).not.toBeNull()
-    expect(lockPanel).not.toBeNull()
-
-    passwordInput!.value = 'Halo#2026'
+    passwordInput!.value = 'secret'
     form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
 
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/private-posts/data?slug=demo-post', {
-        cache: 'no-store',
+      expect(fetch).toHaveBeenCalledWith('/apis/api.privateposts.halo.run/v1alpha1/hide-password/verify', {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           Accept: 'application/json',
         },
+        body: JSON.stringify({ postName: 'demo-post', password: 'secret' }),
       })
       expect(content!.hidden).toBe(false)
-      expect(content!.innerHTML).toBe('<p>Unlocked body</p>')
+      expect(content!.innerHTML).toContain('example.com/file.zip')
       expect(lockPanel!.hidden).toBe(true)
-      expect(status!.dataset.status).toBe('success')
-    })
-
-    window.dispatchEvent(new Event('pagehide'))
-
-    await vi.waitFor(() => {
-      expect(content!.hidden).toBe(true)
-      expect(content!.innerHTML).toBe('')
-      expect(lockPanel!.hidden).toBe(false)
-      expect(passwordInput!.value).toBe('')
-      expect(status!.dataset.status).toBe('neutral')
-      expect(status!.textContent).toContain('正文已重新锁定')
     })
   })
 
-  it('refreshes the lock description from the no-store bundle endpoint on mount', async () => {
-    document.body.innerHTML = `
-      <div
-        data-halo-private-post-reader
-        data-bundle-url="/private-posts/data?slug=demo-post"
-      >
-        <div data-hpp-lock-panel>
-          <p data-hpp-status data-status="neutral">初始状态</p>
-          <p class="hpp-description" data-hpp-description>旧说明</p>
-          <form data-hpp-form>
-            <input data-hpp-password />
-            <button data-hpp-submit type="submit">解锁</button>
-          </form>
-        </div>
-        <div data-hpp-content hidden></div>
-      </div>
-    `
+  it('shows an error message when the password is wrong', async () => {
+    mountHider()
 
     vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        description: '新说明',
-        bundle: {
-          version: 3,
-          metadata: {
-            slug: 'demo-post',
-            title: 'Demo Post',
-            description: '新说明',
-          },
-        },
-      }),
+      status: 401,
+      ok: false,
+      json: async () => ({ message: '访问密码错误' }),
     } as Response)
 
-    window.haloPrivatePostsMountReaders?.()
+    const form = document.querySelector<HTMLFormElement>('[data-hpp-form]')
+    const passwordInput = document.querySelector<HTMLInputElement>('[data-hpp-password]')
+    const status = document.querySelector<HTMLElement>('[data-hpp-status]')
+    const content = document.querySelector<HTMLElement>('[data-hpp-content]')
 
-    await vi.waitFor(() => {
-      const description = document.querySelector<HTMLElement>('[data-hpp-description]')
-      expect(description?.textContent).toBe('新说明')
-    })
-  })
-
-  it('creates the lock description when cached markup does not have one yet', async () => {
-    document.body.innerHTML = `
-      <div
-        data-halo-private-post-reader
-        data-bundle-url="/private-posts/data?slug=demo-post"
-      >
-        <div data-hpp-lock-panel>
-          <p data-hpp-status data-status="neutral">初始状态</p>
-          <form data-hpp-form>
-            <input data-hpp-password />
-            <button data-hpp-submit type="submit">解锁</button>
-          </form>
-        </div>
-        <div data-hpp-content hidden></div>
-      </div>
-    `
-
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        description: '后来新增的说明',
-        bundle: {
-          version: 3,
-          metadata: {
-            slug: 'demo-post',
-            title: 'Demo Post',
-          },
-        },
-      }),
-    } as Response)
-
-    window.haloPrivatePostsMountReaders?.()
-
-    await vi.waitFor(() => {
-      const description = document.querySelector<HTMLElement>('[data-hpp-description]')
-      const form = document.querySelector<HTMLElement>('[data-hpp-form]')
-      expect(description?.textContent).toBe('后来新增的说明')
-      expect(description?.nextElementSibling).toBe(form)
-    })
-  })
-
-  it('uses the themed inline host and restores the original lock UI after relock', async () => {
-    document.body.innerHTML = `
-      <div class="content">
-        <div
-          data-halo-private-post-reader
-          data-hpp-layout="inline"
-          data-bundle-url="/private-posts/data?slug=inline-post"
-        >
-          <form data-hpp-form>
-            <input data-hpp-password />
-            <button data-hpp-submit type="submit">解锁</button>
-          </form>
-          <p data-hpp-status data-status="neutral">初始状态</p>
-          <div data-hpp-lock-panel>
-            <p class="hpp-description" data-hpp-description>旧说明</p>
-          </div>
-          <div data-hpp-content hidden></div>
-        </div>
-      </div>
-    `
-
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        description: '新说明',
-        bundle: {
-          version: 3,
-          metadata: {
-            description: '新说明',
-          },
-        },
-      }),
-    } as Response)
-    decryptPrivatePost.mockResolvedValue({
-      metadata: {
-        slug: 'inline-post',
-        title: 'Inline Post',
-      },
-      payload_format: 'html',
-      content: '<p>Inline content</p>',
-    })
-    renderPrivatePostDocument.mockResolvedValue('<article><p>Inline content</p></article>')
-
-    window.haloPrivatePostsMountReaders?.()
-
-    const host = document.querySelector<HTMLElement>('.content')
-    const form = host?.querySelector<HTMLFormElement>('[data-hpp-form]')
-    const passwordInput = host?.querySelector<HTMLInputElement>('[data-hpp-password]')
-
-    expect(host).not.toBeNull()
-    expect(form).not.toBeNull()
-    expect(passwordInput).not.toBeNull()
-
-    await vi.waitFor(() => {
-      expect(host!.querySelector<HTMLElement>('[data-hpp-description]')?.textContent).toBe('新说明')
-    })
-
-    passwordInput!.value = 'Halo#2026'
+    passwordInput!.value = 'wrong'
     form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
 
     await vi.waitFor(() => {
-      expect(host!.dataset.hppUnlocked).toBe('true')
-      expect(host!.innerHTML).toBe('<article><p>Inline content</p></article>')
+      expect(status!.dataset.status).toBe('error')
+      expect(status!.textContent).toBe('访问密码错误')
+      expect(content!.hidden).toBe(true)
     })
+  })
 
-    window.dispatchEvent(new Event('pagehide'))
+  it('keeps content locked when the response does not contain the rendered segment', async () => {
+    mountHider()
+
+    vi.mocked(fetch).mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ segments: [] }),
+    } as Response)
+
+    const form = document.querySelector<HTMLFormElement>('[data-hpp-form]')
+    const passwordInput = document.querySelector<HTMLInputElement>('[data-hpp-password]')
+    const status = document.querySelector<HTMLElement>('[data-hpp-status]')
+    const content = document.querySelector<HTMLElement>('[data-hpp-content]')
+    const lockPanel = document.querySelector<HTMLElement>('[data-hpp-lock-panel]')
+
+    passwordInput!.value = 'secret'
+    form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
 
     await vi.waitFor(() => {
-      expect(host!.dataset.hppUnlocked).toBeUndefined()
-      const restoredRoot = host!.querySelector<HTMLElement>('[data-halo-private-post-reader]')
-      const restoredStatus = host!.querySelector<HTMLElement>('[data-hpp-status]')
-      expect(restoredRoot).not.toBeNull()
-      expect(restoredRoot!.dataset.hppMounted).toBe('true')
-      expect(host!.querySelector<HTMLElement>('[data-hpp-description]')?.textContent).toBe('新说明')
-      expect(restoredStatus?.dataset.status).toBe('neutral')
-      expect(restoredStatus?.textContent).toContain('正文已重新锁定')
+      expect(status!.dataset.status).toBe('error')
+      expect(status!.textContent).toBe('页面内容已变更，请刷新后重试')
+      expect(content!.hidden).toBe(true)
+      expect(lockPanel!.hidden).toBe(false)
+    })
+  })
+
+  it('keeps content locked when the verify response shape is invalid', async () => {
+    mountHider()
+
+    vi.mocked(fetch).mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ segments: [123] }),
+    } as Response)
+
+    const form = document.querySelector<HTMLFormElement>('[data-hpp-form]')
+    const passwordInput = document.querySelector<HTMLInputElement>('[data-hpp-password]')
+    const status = document.querySelector<HTMLElement>('[data-hpp-status]')
+    const content = document.querySelector<HTMLElement>('[data-hpp-content]')
+
+    passwordInput!.value = 'secret'
+    form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+
+    await vi.waitFor(() => {
+      expect(status!.textContent).toBe('校验服务返回了无效数据')
+      expect(content!.hidden).toBe(true)
+    })
+  })
+
+  it('shows the server error instead of hiding the response status', async () => {
+    mountHider()
+
+    vi.mocked(fetch).mockResolvedValue({
+      status: 403,
+      ok: false,
+      json: async () => ({ message: '公开接口被拒绝' }),
+    } as Response)
+
+    const form = document.querySelector<HTMLFormElement>('[data-hpp-form]')
+    const passwordInput = document.querySelector<HTMLInputElement>('[data-hpp-password]')
+    const status = document.querySelector<HTMLElement>('[data-hpp-status]')
+
+    passwordInput!.value = 'secret'
+    form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+
+    await vi.waitFor(() => {
+      expect(status!.textContent).toBe('公开接口被拒绝')
     })
   })
 })

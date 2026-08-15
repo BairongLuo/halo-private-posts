@@ -5,116 +5,93 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.HtmlUtils;
-import org.springframework.web.util.UriUtils;
 import reactor.core.publisher.Mono;
 import run.halo.app.core.extension.content.Post;
 import run.halo.app.theme.ReactivePostContentHandler;
-import run.halo.privateposts.model.PrivatePost;
-import run.halo.privateposts.service.PrivatePostService;
-import run.halo.privateposts.sync.PostPrivatePostSyncListener;
+import run.halo.privateposts.service.HidePasswordService;
 
+/**
+ * 渲染拦截：把正文里的 {@code [hide-password]} 纯文本标记之间的内容替换成锁定块。
+ *
+ * <p>拦截发生在编辑器渲染之后，因此这里操作的是渲染后的 HTML。被标记包住的内容会被
+ * 替换成锁定块，不再下发给读者；读者输入密码通过服务端校验后，内容才被返回。
+ */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class InlinePrivatePostContentHandler implements ReactivePostContentHandler {
-    private static final int IDLE_TIMEOUT_MS = 300000;
+    private static final String VERIFY_PATH =
+        "/apis/api.privateposts.halo.run/v1alpha1/hide-password/verify";
+
+    private final HidePasswordService hidePasswordService;
+
+    public InlinePrivatePostContentHandler(HidePasswordService hidePasswordService) {
+        this.hidePasswordService = hidePasswordService;
+    }
 
     @Override
     public Mono<PostContentContext> handle(PostContentContext postContent) {
         Post post = postContent.getPost();
-        if (!PrivatePostService.isActivePrivatePostSource(post)
-            || post.getMetadata() == null
-            || post.getSpec() == null
-            || !StringUtils.hasText(post.getSpec().getSlug())) {
+        if (!hidePasswordService.isConfigured(post)) {
             return Mono.just(postContent);
         }
 
-        String postName = post.getMetadata().getName();
+        String postName = post.getMetadata() == null ? null : post.getMetadata().getName();
         if (!StringUtils.hasText(postName)) {
             return Mono.just(postContent);
         }
 
-        PrivatePost.Bundle bundle = PostPrivatePostSyncListener.readBundleFromAnnotations(
-            postName,
-            post.getMetadata().getAnnotations()
-        );
-        if (bundle == null) {
+        String html = postContent.getContent();
+        if (!StringUtils.hasText(html)) {
             return Mono.just(postContent);
         }
 
-        postContent.setContent(buildInlineReaderHtml(post, bundle));
+        postContent.setContent(hidePasswordService.replaceHiddenSegments(
+            html,
+            index -> buildLockHtml(postName, index)
+        ));
         return Mono.just(postContent);
     }
 
-    private String buildInlineReaderHtml(Post post, PrivatePost.Bundle bundle) {
-        String slug = post.getSpec().getSlug();
-        String encodedSlug = UriUtils.encode(slug, "UTF-8");
-        String description = readDescription(bundle);
-        String postName = post.getMetadata() == null ? "" : post.getMetadata().getName();
-        String safeDescription = StringUtils.hasText(description)
-            ? """
-                    <p class="hpp-excerpt" data-hpp-description>%s</p>
-                """.formatted(escape(description))
-            : "";
-
+    private String buildLockHtml(String postName, int index) {
+        String escapedPostName = HtmlUtils.htmlEscape(postName);
         return """
             <section
               class="hpp-inline"
-              data-halo-private-post-reader="true"
-              data-hpp-layout="inline"
-              data-bundle-url="%s"
-              data-idle-timeout-ms="%d"
+              data-halo-private-post-hide="true"
+              data-hide-post="%s"
+              data-hide-index="%d"
+              data-hide-verify-url="%s"
             >
               <div class="hpp-shell">
                 <div class="hpp-panel">
                   <div class="hpp-lock" data-hpp-lock-panel>
-                    %s
                     <p class="hpp-status" data-hpp-status data-status="neutral" hidden></p>
-                    <form class="hpp-form" data-hpp-form>
-                      <label class="hpp-label" for="hpp-password-%s">
-                        访问密码
-                        <input
-                          class="hpp-input"
-                          id="hpp-password-%s"
-                          data-hpp-password
-                          type="password"
-                          autocomplete="off"
-                        >
-                      </label>
-                      <div class="hpp-actions">
-                        <button class="hpp-button" data-hpp-submit type="submit">
-                          用密码解锁
-                        </button>
-                      </div>
+                    <form class="hpp-form hpp-form--inline" data-hpp-form>
+                      <input
+                        class="hpp-input"
+                        data-hpp-password
+                        type="password"
+                        placeholder="访问密码"
+                        autocomplete="current-password"
+                        maxlength="%d"
+                      >
+                      <button class="hpp-button" data-hpp-submit type="submit">
+                        解锁
+                      </button>
                     </form>
                   </div>
-                  <article class="hpp-content" data-hpp-content hidden></article>
+                  <div class="hpp-content" data-hpp-content hidden></div>
                 </div>
               </div>
               <noscript>
-                <p>
-                  此页面需要 JavaScript 才能在当前页面中本地解密正文。
-                </p>
+                <p>此内容需要输入密码查看。</p>
               </noscript>
             </section>
             """.formatted(
-            escape("/private-posts/data?slug=" + encodedSlug),
-            IDLE_TIMEOUT_MS,
-            safeDescription,
-            escape(postName),
-            escape(postName)
-        );
-    }
-
-    private static String readDescription(PrivatePost.Bundle bundle) {
-        if (bundle != null && bundle.getMetadata() != null
-            && StringUtils.hasText(bundle.getMetadata().getDescription())) {
-            return bundle.getMetadata().getDescription();
-        }
-
-        return "";
-    }
-
-    private static String escape(String value) {
-        return HtmlUtils.htmlEscape(value);
+                escapedPostName,
+                index,
+                VERIFY_PATH,
+                HidePasswordService.MAX_PASSWORD_LENGTH
+            );
     }
 }

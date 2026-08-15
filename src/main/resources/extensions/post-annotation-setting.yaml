@@ -11,7 +11,8 @@ spec:
   formSchema:
     - $el: div
       attrs:
-        data-hpp-annotation-tool-slot: "true"
+        data-hpp-hide-password-slot: "true"
     - $formkit: hidden
-      id: hpp-annotation-bundle
-      name: privateposts.halo.run/bundle
+      id: hpp-hide-password-config
+      name: privateposts.halo.run/hide-password
+      delay: 0
