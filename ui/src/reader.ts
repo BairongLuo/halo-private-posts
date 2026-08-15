@@ -1,45 +1,38 @@
-import './styles/private-post-theme.css'
 import './reader.css'
-
-import type { PrivatePostView } from '@/types/private-post'
-import {
-  decryptPrivatePost,
-  renderPrivatePostDocument,
-} from '@/utils/private-post-crypto'
 
 declare global {
   interface Window {
-    haloPrivatePostsMountReaders?: () => void
-    haloPrivatePostsReaderInitialized?: boolean
+    haloPrivatePostsMountHiders?: () => void
+    haloPrivatePostsHiderInitialized?: boolean
   }
 }
 
-if (!window.haloPrivatePostsReaderInitialized) {
-  window.haloPrivatePostsReaderInitialized = true
-  window.haloPrivatePostsMountReaders = mountAllReaders
-  mountAllReaders()
+if (!window.haloPrivatePostsHiderInitialized) {
+  window.haloPrivatePostsHiderInitialized = true
+  window.haloPrivatePostsMountHiders = mountAllHiders
+  mountAllHiders()
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mountAllReaders, { once: true })
+    document.addEventListener('DOMContentLoaded', mountAllHiders, { once: true })
   }
 
-  installReaderObserver()
+  installHiderObserver()
 }
 
-function mountAllReaders() {
-  document.querySelectorAll<HTMLElement>('[data-halo-private-post-reader]').forEach((root) => {
-    void bootReader(root)
+function mountAllHiders() {
+  document.querySelectorAll<HTMLElement>('[data-halo-private-post-hide]').forEach((root) => {
+    void bootHider(root)
   })
 }
 
-function installReaderObserver() {
+function installHiderObserver() {
   if (typeof MutationObserver === 'undefined') {
     return
   }
 
   const observer = new MutationObserver((mutations) => {
-    if (mutations.some(containsReaderMount)) {
-      mountAllReaders()
+    if (mutations.some(containsHiderMount)) {
+      mountAllHiders()
     }
   })
 
@@ -49,165 +42,35 @@ function installReaderObserver() {
   })
 }
 
-function containsReaderMount(mutation: MutationRecord): boolean {
+function containsHiderMount(mutation: MutationRecord): boolean {
   return Array.from(mutation.addedNodes).some((node) => {
     if (!(node instanceof HTMLElement)) {
       return false
     }
-
-    return node.matches('[data-halo-private-post-reader]')
-      || Boolean(node.querySelector('[data-halo-private-post-reader]'))
+    return node.matches('[data-halo-private-post-hide]')
+      || Boolean(node.querySelector('[data-halo-private-post-hide]'))
   })
 }
 
-async function bootReader(element: HTMLElement) {
+async function bootHider(element: HTMLElement) {
   if (element.dataset.hppMounted === 'true') {
     return
   }
 
-  const bundleUrl = element.dataset.bundleUrl
-  const layout = element.dataset.hppLayout ?? 'standalone'
-  const idleTimeoutMs = Number.parseInt(element.dataset.idleTimeoutMs ?? '300000', 10)
+  const postName = element.dataset.hidePost
+  const verifyUrl = element.dataset.hideVerifyUrl
   const form = element.querySelector<HTMLFormElement>('[data-hpp-form]')
   const passwordInput = element.querySelector<HTMLInputElement>('[data-hpp-password]')
   const submitButton = element.querySelector<HTMLButtonElement>('[data-hpp-submit]')
-  const status = element.querySelector<HTMLParagraphElement>('[data-hpp-status]')
-  const lockPanel = element.querySelector<HTMLDivElement>('[data-hpp-lock-panel]')
+  const status = element.querySelector<HTMLElement>('[data-hpp-status]')
+  const lockPanel = element.querySelector<HTMLElement>('[data-hpp-lock-panel]')
   const content = element.querySelector<HTMLElement>('[data-hpp-content]')
-  const themedHost = resolveThemedInlineHost(element, layout)
 
-  if (!bundleUrl || !form || !passwordInput || !submitButton || !status || !lockPanel || !content) {
+  if (!postName || !verifyUrl || !form || !passwordInput || !submitButton || !status || !lockPanel || !content) {
     return
   }
 
   element.dataset.hppMounted = 'true'
-
-  let idleTimer: number | undefined
-  let activityListenersEnabled = false
-  let inlineThemeUnlocked = false
-  let themedHostMarkup = themedHost?.innerHTML ?? null
-  const lifecycleController = new AbortController()
-  const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'touchstart']
-  const isUnlocked = () => inlineThemeUnlocked || !content.hidden
-  let viewPromise: Promise<PrivatePostView> | null = null
-
-  const loadView = (): Promise<PrivatePostView> => {
-    if (!viewPromise) {
-      viewPromise = fetchPrivatePostView(bundleUrl)
-        .then((view) => {
-          syncDescription(element, lockPanel, readDescription(view))
-          if (themedHost && !inlineThemeUnlocked) {
-            themedHostMarkup = themedHost.innerHTML
-          }
-          return view
-        })
-        .catch((error) => {
-          viewPromise = null
-          throw error
-        })
-    }
-
-    return viewPromise
-  }
-
-  void loadView().catch(() => {
-    // Keep the initial server-rendered lock UI if the eager metadata refresh fails.
-  })
-
-  const relock = (message: string) => {
-    if (idleTimer) {
-      window.clearTimeout(idleTimer)
-      idleTimer = undefined
-    }
-
-    if (themedHost && themedHostMarkup !== null && inlineThemeUnlocked) {
-      inlineThemeUnlocked = false
-      activityListenersEnabled = false
-      lifecycleController.abort()
-      themedHost.innerHTML = themedHostMarkup
-      themedHost.removeAttribute('data-hpp-unlocked')
-
-      const restoredStatus = themedHost.querySelector<HTMLElement>('[data-hpp-status]')
-      if (restoredStatus) {
-        setStatus(restoredStatus, 'neutral', message)
-      }
-
-      const restoredRoot = themedHost.querySelector<HTMLElement>('[data-halo-private-post-reader]')
-      if (restoredRoot) {
-        void bootReader(restoredRoot)
-      }
-
-      return
-    }
-
-    content.innerHTML = ''
-    content.hidden = true
-    lockPanel.hidden = false
-    passwordInput.value = ''
-    setStatus(status, 'neutral', message)
-    toggleActivityListeners(false)
-  }
-
-  const armIdleRelock = () => {
-    if (idleTimer) {
-      window.clearTimeout(idleTimer)
-    }
-
-    idleTimer = window.setTimeout(() => {
-      relock('空闲时间过长，正文已重新锁定。')
-    }, idleTimeoutMs)
-  }
-
-  const toggleActivityListeners = (enabled: boolean) => {
-    if (activityListenersEnabled === enabled) {
-      return
-    }
-
-    activityListenersEnabled = enabled
-
-    activityEvents.forEach((eventName) => {
-      if (enabled) {
-        window.addEventListener(eventName, armIdleRelock, {
-          passive: true,
-          signal: lifecycleController.signal,
-        })
-      } else {
-        window.removeEventListener(eventName, armIdleRelock)
-      }
-    })
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && isUnlocked()) {
-      relock('标签页已隐藏，正文已重新锁定。')
-    }
-  }, { signal: lifecycleController.signal })
-
-  window.addEventListener('pagehide', () => {
-    if (isUnlocked()) {
-      relock('你已离开页面，正文已重新锁定。')
-    }
-  }, { signal: lifecycleController.signal })
-
-  const setBusy = (busy: boolean) => {
-    submitButton.disabled = busy
-  }
-
-  const revealContent = (renderedHtml: string, message: string) => {
-    if (themedHost && themedHostMarkup !== null) {
-      inlineThemeUnlocked = true
-      themedHost.innerHTML = renderedHtml
-      themedHost.dataset.hppUnlocked = 'true'
-    } else {
-      content.innerHTML = renderedHtml
-      content.hidden = false
-      lockPanel.hidden = true
-      setStatus(status, 'success', message)
-    }
-
-    armIdleRelock()
-    toggleActivityListeners(true)
-  }
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
@@ -217,78 +80,112 @@ async function bootReader(element: HTMLElement) {
       return
     }
 
-    setBusy(true)
-    setStatus(status, 'neutral', '正在拉取密文并在浏览器中解密…')
+    setBusy(submitButton, true)
+    setStatus(status, 'neutral', '正在校验密码…')
 
     try {
-      const view = await loadView()
-      const decrypted = await decryptPrivatePost(view.bundle, password)
-      const renderedHtml = await renderPrivatePostDocument(decrypted)
-
-      revealContent(
-        renderedHtml,
-        '正文已在浏览器中解密。'
-      )
+      const segments = await verifyPassword(verifyUrl, postName, password)
+      revealHiders(postName, segments)
     } catch (error) {
       setStatus(status, 'error', toMessage(error))
       passwordInput.select()
     } finally {
-      setBusy(false)
+      setBusy(submitButton, false)
     }
   })
 }
 
-async function fetchPrivatePostView(bundleUrl: string): Promise<PrivatePostView> {
-  const response = await fetch(bundleUrl, {
-    cache: 'no-store',
+async function verifyPassword(verifyUrl: string, postName: string, password: string): Promise<string[]> {
+  const response = await fetch(verifyUrl, {
+    method: 'POST',
     headers: {
+      'Content-Type': 'application/json',
       Accept: 'application/json',
     },
+    body: JSON.stringify({ postName, password }),
   })
 
+  if (response.status === 401) {
+    throw new Error(await readErrorMessage(response, '访问密码错误'))
+  }
+
   if (!response.ok) {
-    throw new Error('无法加载私密文章 bundle')
+    throw new Error(await readErrorMessage(
+      response,
+      `无法校验密码（HTTP ${response.status}）`,
+    ))
   }
 
-  return (await response.json()) as PrivatePostView
+  const data: unknown = await response.json()
+  if (!isVerifyResponse(data)) {
+    throw new Error('校验服务返回了无效数据')
+  }
+  return data.segments
 }
 
-function readDescription(view: PrivatePostView): string {
-  return (view.description || view.bundle.metadata?.description || '').trim()
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data: unknown = await response.json()
+    if (typeof data !== 'object' || data === null) {
+      return fallback
+    }
+    const errorBody = data as Record<string, unknown>
+    for (const key of ['message', 'detail', 'title'] as const) {
+      const value = errorBody[key]
+      if (typeof value === 'string' && value.trim()) {
+        return value
+      }
+    }
+  } catch {
+    // Halo 或反向代理可能返回非 JSON 错误页。
+  }
+  return fallback
 }
 
-function syncDescription(root: HTMLElement, lockPanel: HTMLElement, description: string) {
-  const currentDescriptions = Array.from(
-    root.querySelectorAll<HTMLElement>('[data-hpp-description], .hpp-description')
-  )
-  if (!description) {
-    currentDescriptions.forEach((element) => element.remove())
-    return
+function revealHiders(postName: string, segments: string[]) {
+  const hiders = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-halo-private-post-hide]'),
+  ).filter((element) => element.dataset.hidePost === postName)
+
+  const indexedHiders = hiders.map((element) => ({
+    element,
+    index: Number.parseInt(element.dataset.hideIndex ?? '', 10),
+  }))
+  if (indexedHiders.some(({ index }) => !Number.isInteger(index) || index < 0 || index >= segments.length)) {
+    throw new Error('页面内容已变更，请刷新后重试')
   }
 
-  if (currentDescriptions.length > 0) {
-    currentDescriptions.forEach((element) => {
-      element.textContent = description
-    })
-    return
-  }
+  indexedHiders.forEach(({ element, index }) => {
+    const segment = segments[index] ?? ''
+    const content = element.querySelector<HTMLElement>('[data-hpp-content]')
+    const lockPanel = element.querySelector<HTMLElement>('[data-hpp-lock-panel]')
+    const status = element.querySelector<HTMLElement>('[data-hpp-status]')
 
-  createDescriptionElement(lockPanel).textContent = description
+    if (!content) {
+      return
+    }
+
+    content.innerHTML = renderSegment(segment)
+    content.hidden = false
+    if (lockPanel) {
+      lockPanel.hidden = true
+    }
+    if (status) {
+      setStatus(status, 'success', '已解锁')
+    }
+  })
 }
 
-function createDescriptionElement(lockPanel: HTMLElement): HTMLElement {
-  const element = document.createElement('p')
-  element.className = 'hpp-description'
-  element.dataset.hppDescription = 'true'
-
-  const form = lockPanel.querySelector('[data-hpp-form]')
-  if (form) {
-    lockPanel.insertBefore(element, form)
-    return element
+function isVerifyResponse(value: unknown): value is { segments: string[] } {
+  if (typeof value !== 'object' || value === null || !('segments' in value)) {
+    return false
   }
+  return Array.isArray(value.segments) && value.segments.every((segment) => typeof segment === 'string')
+}
 
-  lockPanel.appendChild(element)
-  return element
+function renderSegment(segment: string): string {
+  // 服务端返回的是渲染后的 HTML 片段，直接插入即可。
+  return segment
 }
 
 function setStatus(element: HTMLElement, state: 'neutral' | 'success' | 'error', message: string) {
@@ -297,24 +194,8 @@ function setStatus(element: HTMLElement, state: 'neutral' | 'success' | 'error',
   element.hidden = message.length === 0
 }
 
-function resolveThemedInlineHost(element: HTMLElement, layout: string): HTMLElement | null {
-  if (layout !== 'inline') {
-    return null
-  }
-
-  const parent = element.parentElement
-  if (!parent || parent.firstElementChild !== element || parent.children.length !== 1) {
-    return null
-  }
-
-  if (
-    parent.matches('[itemprop="articleBody"]')
-    || parent.matches('.content, .post-content, .entry-content, .article-content, .markdown-body, .prose')
-  ) {
-    return parent
-  }
-
-  return null
+function setBusy(button: HTMLButtonElement, busy: boolean) {
+  button.disabled = busy
 }
 
 function toMessage(error: unknown): string {

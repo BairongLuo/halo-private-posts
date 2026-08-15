@@ -14,7 +14,7 @@ spec:
   repo: https://github.com/BairongLuo/halo-private-posts
   issues: https://github.com/BairongLuo/halo-private-posts/issues
   displayName: "文章加密"
-  description: "为 Halo 提供加密正文、浏览器本地解密和自动重锁的私密文章插件。"
+  description: "为 Halo 文章提供片段密码隐藏：用纯文本标记包住需要保护的内容，访客输入密码后才能查看。"
   license:
     - name: "GPL-3.0-only"
       url: "https://github.com/BairongLuo/halo-private-posts/blob/main/LICENSE"

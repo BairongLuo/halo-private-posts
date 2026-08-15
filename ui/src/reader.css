@@ -156,6 +156,16 @@
   align-items: end;
 }
 
+.hpp-form--inline {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.hpp-form--inline .hpp-input {
+  flex: 1;
+}
+
 .hpp-actions {
   display: flex;
   gap: 12px;
