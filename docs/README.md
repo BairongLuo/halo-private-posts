@@ -42,6 +42,7 @@
 | `InlinePrivatePostContentHandler` | 在主题渲染结果中将受保护片段替换为锁定块 |
 | `HidePasswordConsoleRouter` | 为控制台表单生成密码配置 |
 | `HidePasswordRouter` | 校验读者密码并返回受保护片段 |
+| `role-reader.yaml` | 将读者解锁端点授权给匿名与已登录角色 |
 | `HidePasswordPanel.vue` | 管理控制台中的密码输入和清除操作 |
 | `annotation-field.ts` | 读写 FormKit 注解字段 |
 | `official-save-interceptor.ts` | 在密码配置准备完成后恢复 Halo 保存提交 |
@@ -122,6 +123,14 @@ AnnotationSetting 中的密码字段使用 `delay: 0`。控制台在恢复提交
 ## 公开接口
 
 `POST /apis/api.privateposts.halo.run/v1alpha1/hide-password/verify`
+
+该接口面向未登录访客。插件的自定义 API 默认仅超级管理员可访问，因此
+`src/main/resources/extensions/role-reader.yaml` 声明了一个隐藏角色模板，通过
+`rbac.authorization.halo.run/aggregate-to-anonymous` 聚合到匿名角色。缺少该角色时，
+未登录设备会被 RBAC 拦截并重定向到登录页，浏览器收到 HTML 而非 JSON。
+
+角色模板在插件启动时加载。升级插件后需要停用再启用插件，或重启 Halo，
+新的授权规则才会生效。
 
 请求体：
 
