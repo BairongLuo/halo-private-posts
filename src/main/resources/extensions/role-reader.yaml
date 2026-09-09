@@ -1,0 +1,25 @@
+apiVersion: v1alpha1
+kind: Role
+metadata:
+  name: halo-private-posts-role-verify-password
+  labels:
+    halo.run/role-template: "true"
+    halo.run/hidden: "true"
+    # 插件的自定义 API 默认仅超级管理员可访问，读者解锁端点必须显式聚合到
+    # 匿名与已登录角色，否则未登录设备会被 RBAC 拦截并重定向到登录页。
+    rbac.authorization.halo.run/aggregate-to-anonymous: "true"
+    rbac.authorization.halo.run/aggregate-to-authenticated: "true"
+  annotations:
+    rbac.authorization.halo.run/module: "Private Posts"
+    rbac.authorization.halo.run/display-name: "校验文章访问密码"
+rules:
+  # POST /apis/api.privateposts.halo.run/v1alpha1/hide-password/verify
+  # 按 <resource>/<resourceName> 解析：resource 为 hide-password，resourceName 为 verify，
+  # POST 对应 create。
+  - apiGroups: ["api.privateposts.halo.run"]
+    resources: ["hide-password"]
+    resourceNames: ["verify"]
+    verbs: ["create"]
+  # 若该请求未被识别为资源型 API，则按非资源型路径兜底放行。
+  - nonResourceURLs: ["/apis/api.privateposts.halo.run/v1alpha1/hide-password/verify"]
+    verbs: ["create"]
